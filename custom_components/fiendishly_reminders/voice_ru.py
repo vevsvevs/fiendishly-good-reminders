@@ -179,8 +179,15 @@ def clock(when: datetime) -> str:
     return f"{when.hour:02d}:{when.minute:02d}"
 
 
+_MONTH_GENITIVE = (
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+)
+
+
 def moment(when: datetime) -> str:
-    return f"{when.day:02d}.{when.month:02d}.{when.year} в {clock(when)}"
+    """Russian TTS-friendly date with the month in the correct case."""
+    return f"{when.day} {_MONTH_GENITIVE[when.month - 1]} {when.year} года в {clock(when)}"
 
 
 def delivery_header(name: str | None = None) -> str:
