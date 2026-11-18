@@ -251,6 +251,8 @@ def case_pronouns():
     assert ru.second_person("проверить мои документы") == "проверить твои документы"
     assert ru.second_person("позвонить моей маме") == "позвонить твоей маме"
     assert ru.second_person("Мой ноутбук") == "Твой ноутбук"
+    assert ru.second_person("проверить моё письмо") == "проверить твоё письмо"
+    assert ru.second_person("посмотреть в моём шкафу") == "посмотреть в твоём шкафу"
     assert ru.second_person("услышать мойку на кухне") == "услышать мойку на кухне"
 check("delivery: Russian second-person inflection",case_pronouns)
 
