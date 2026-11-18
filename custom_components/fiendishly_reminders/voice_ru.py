@@ -191,7 +191,8 @@ def moment(when: datetime) -> str:
 
 
 def delivery_header(name: str | None = None) -> str:
-    return f"Напоминание для {name}" if name else "Напоминание"
+    # A configured owner name has no grammatical case metadata; do not invent its genitive.
+    return f"Напоминание из списка «{name}»" if name else "Напоминание"
 
 
 YES_SENTENCES = ["да", "да конечно", "подтверждаю", "верно", "правильно",
