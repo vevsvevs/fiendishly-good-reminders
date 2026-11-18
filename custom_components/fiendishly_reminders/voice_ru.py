@@ -61,6 +61,24 @@ def number(value: str) -> int | None:
 
 
 def _relative(s: str):
+    # The free-form answer to "Когда напомнить?" must mean the same thing as
+    # the one-turn Hassil slots. Test fractions *before* the integer pattern:
+    # "через четыре часа с половиной" otherwise quietly loses 30 minutes.
+    numeral = r"(?:\\d+|[а-я]+(?:\\s+[а-я]+){0,2})"
+    unit = r"(?:секунду|секунды|секунд|сек|минуту|минуты|минут|мин|часов|часа|час|день|дня|дней)"
+    fraction = r"(?:с половиной|с четвертью|с тремя четвертями)"
+    fractions = {"с половиной": 0.5, "с четвертью": 0.25,
+                 "с тремя четвертями": 0.75}
+    for pattern_text in (
+        rf"\\b(?:через|спустя)\\s+(?P<n>{numeral})\\s+(?P<f>{fraction})\\s+(?P<u>{unit})\\b",
+        rf"\\b(?:через|спустя)\\s+(?P<n>{numeral})\\s+(?P<u>{unit})\\s+(?P<f>{fraction})\\b",
+    ):
+        for match in re.finditer(pattern_text, s):
+            n = number(match.group("n"))
+            if n is not None and n > 0:
+                return match.start(), timedelta(
+                    seconds=(n + fractions[match.group("f")]) * _UNITS[match.group("u")]
+                )
     pattern = re.compile(
         r"\b(?:через|спустя)\s+(\d+|[а-я]+(?:\s+[а-я]+){0,2})\s+"
         r"(секунд(?:у|ы)?|сек|минут(?:у|ы)?|мин|час(?:а|ов)?|день|дня|дней)\b"
