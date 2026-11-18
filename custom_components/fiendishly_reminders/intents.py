@@ -93,6 +93,23 @@ NO_SENTENCES = [
 ]
 
 
+def _is_ru(intent_obj) -> bool:
+    """A spoken request carries its own language; never infer it from the name."""
+    language = getattr(intent_obj, "language", "en") or "en"
+    return language.lower().startswith("ru")
+
+
+def _ru_message(key: str, **values) -> str:
+    from .voice_ru import message
+    return message(key, **values)
+
+
+def _ru_moment(when: datetime) -> str:
+    from .voice_ru import moment
+    return moment(when)
+
+
+
 # ---------------------------------------------------------------- slot reading
 
 
@@ -942,14 +959,17 @@ class SetReminderIntent(ReminderIntent):
         slots = intent_obj.slots
         text = _text(slots, "reminder_text")
         if not text:
-            return self._say(intent_obj, "Beg pardon, I didn't catch what to remind you about.")
+            return self._say(intent_obj, _ru_message("no_text") if _is_ru(intent_obj)
+                             else "Beg pardon, I didn't catch what to remind you about.")
 
         now = dt_util.now()
         when = when_from_slots(now, slots, self._default_time(manager))
         if when is None:
-            return self._say(intent_obj, "Beg pardon, I couldn't work out when.")
+            return self._say(intent_obj, _ru_message("no_time") if _is_ru(intent_obj)
+                             else "Beg pardon, I couldn't work out when.")
         if when <= now:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
 
         routed, ambiguous = self._route(hass, intent_obj)
         if ambiguous:
@@ -962,7 +982,11 @@ class SetReminderIntent(ReminderIntent):
         try:
             target.schedule(text, when)
         except PastDue:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
+        if _is_ru(intent_obj):
+            return self._say(intent_obj, _ru_message(
+                "created", text=text, when=_ru_moment(when)))
         whose = f" {self._whose(hass, target) or 'you'}"
         return self._say(
             intent_obj,
@@ -986,16 +1010,22 @@ class RecurringReminderIntent(ReminderIntent):
         slots = intent_obj.slots
         text = _text(slots, "reminder_text")
         if not text:
-            return self._say(intent_obj, "Beg pardon, I didn't catch what to remind you about.")
+            return self._say(intent_obj, _ru_message("no_text") if _is_ru(intent_obj)
+                             else "Beg pardon, I didn't catch what to remind you about.")
 
         now = dt_util.now()
-        text, tail_bound = split_trailing_bound(text, now)
+        # English trailing bounds are parsed from free text. Russian bounds belong
+        # in normalized grammar slots and must not pass through English regexes.
+        text, tail_bound = ((text, "") if _is_ru(intent_obj)
+                            else split_trailing_bound(text, now))
         if not text:
-            return self._say(intent_obj, "Beg pardon, I didn't catch what to remind you about.")
+            return self._say(intent_obj, _ru_message("no_text") if _is_ru(intent_obj)
+                             else "Beg pardon, I didn't catch what to remind you about.")
 
         found = recurrence_from_slots(now, slots, tail_bound, self._default_time(manager))
         if found is None:
-            return self._say(intent_obj, "Beg pardon, I couldn't work out when to start that one.")
+            return self._say(intent_obj, _ru_message("no_repeat") if _is_ru(intent_obj)
+                             else "Beg pardon, I couldn't work out when to start that one.")
         when, rrule, every = found
 
         routed, ambiguous = self._route(hass, intent_obj)
@@ -1009,10 +1039,16 @@ class RecurringReminderIntent(ReminderIntent):
         try:
             reminder = manager.schedule(text, when, rrule)
         except PastDue:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
         except InvalidRule:
             _LOGGER.exception("reminders: refused rule for %r", text)
-            return self._say(intent_obj, "Beg pardon, I can't repeat one that often.")
+            return self._say(intent_obj, _ru_message("repeat_invalid") if _is_ru(intent_obj)
+                             else "Beg pardon, I can't repeat one that often.")
+
+        if _is_ru(intent_obj):
+            return self._say(intent_obj, _ru_message(
+                "recurring_created", text=text, when=_ru_moment(when)))
 
         # The store already turns a bound into prose for the to-do row and the card, so
         # the reply reads it back from there rather than describing it a second way.
