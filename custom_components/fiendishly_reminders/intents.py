@@ -1395,11 +1395,14 @@ async def _ask_whose_then_when(hass, handler, satellite: str, managers: list,
     """
     try:
         await asyncio.sleep(ASK_SETTLE)
-        manager = await _settle_whose(hass, satellite, managers,
-                                      "Who's this reminder for?")
+        manager = await _settle_whose(
+            hass, satellite, managers,
+            _ru_message("ask_whose") if language.startswith("ru")
+            else "Who's this reminder for?", language)
         if manager is None:
-            await _announce(hass, satellite,
-                            "I still don't know whose that is, so I've not set it.")
+            await _announce(
+                hass, satellite, _ru_message("ask_whose_failed") if language.startswith("ru")
+                else "I still don't know whose that is, so I've not set it.")
             return
     except Exception:  # noqa: BLE001
         _LOGGER.exception("reminders: could not settle whose list")
@@ -1408,8 +1411,10 @@ async def _ask_whose_then_when(hass, handler, satellite: str, managers: list,
     # question, its repeats and its fallback all behave exactly as they do on their own.
     await _ask_when_then_schedule(
         hass, manager, satellite, text,
-        ("When should this reminder occur? "
-         f"Default is {handler._default_time_phrase(manager)}."),
+        (_ru_message("ask_when", time="%02d:%02d" % tuple(handler._default_time(manager)))
+         if language.startswith("ru") else
+         ("When should this reminder occur? "
+          f"Default is {handler._default_time_phrase(manager)}.")),
         handler._default_time(manager),
         handler._whose(hass, manager) or "you",
         language,
