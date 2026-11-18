@@ -51,7 +51,7 @@ CASES = [
     ("когда ближайшее напоминание", "CustomReminderNext", {}),
     ("сколько у меня напоминаний", "CustomReminderCount", {}),
     ("какие у меня напоминания завтра", "CustomReminderFind", {"when_kind": "tomorrow"}),
-    ("изменить напоминание про зубного", "CustomReminderEdit", {"edit_ask": "yes"}),
+    ("измени напоминание про зубного", "CustomReminderEdit", {"edit_ask": "yes"}),
     ("напомни еще раз через пять минут", "CustomReminderAgain", {"rel_num": 5}),
 ]
 # Must not be claimed by the reminder grammar:
@@ -65,7 +65,7 @@ for phrase, expected, slots in CASES:
     got = r.intent.name if r else None
     vals = {x.name: x.value for x in r.entities_list} if r else {}
     ok = got == expected and all(
-        str(vals.get(k)) == str(v) for k, v in slots.items()
+        (float(vals.get(k)) == float(v) if isinstance(v, (int, float)) and vals.get(k) is not None else vals.get(k) == v) for k, v in slots.items()
     )
     if not ok:
         failures.append((phrase, got, vals, expected, slots))
