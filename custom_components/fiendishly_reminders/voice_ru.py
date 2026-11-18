@@ -274,7 +274,11 @@ _SELF_WORDS = {
     "нашего": "вашего", "нашей": "вашей", "нашу": "вашу",
     "нашим": "вашим", "наших": "ваших", "нашими": "вашими",
 }
-_SELF_RE = re.compile(r"\b(?:" + "|".join(map(re.escape, _SELF_WORDS)) + r")\b", re.I)
+# The STT transcript may keep or omit ё (моё/мое, моём/моем).
+_SELF_RE = re.compile(
+    r"\b(?:" + "|".join(map(re.escape, (*_SELF_WORDS, "моё", "моём"))) + r")\b",
+    re.I,
+)
 
 
 def second_person(text: str) -> str:
