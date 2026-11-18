@@ -1,0 +1,173 @@
+"""Russian follow-up speech parsing for FGR.
+
+Only used for free-form answers after assist_satellite.ask_question; normal
+one-turn requests stay in Hassil. No Home Assistant dependencies.
+Other languages continue to use their existing parser.
+"""
+from __future__ import annotations
+
+import re
+from datetime import datetime, timedelta
+
+_NUMBERS = {
+    "ноль": 0, "один": 1, "одна": 1, "одну": 1, "одно": 1,
+    "два": 2, "две": 2, "три": 3, "четыре": 4,
+    "пять": 5, "шесть": 6, "семь": 7, "восемь": 8, "девять": 9,
+    "десять": 10, "одиннадцать": 11, "двенадцать": 12,
+    "тринадцать": 13, "четырнадцать": 14, "пятнадцать": 15,
+    "шестнадцать": 16, "семнадцать": 17, "восемнадцать": 18,
+    "девятнадцать": 19, "двадцать": 20, "тридцать": 30,
+    "сорок": 40, "пятьдесят": 50, "шестьдесят": 60,
+    "семьдесят": 70, "восемьдесят": 80, "девяносто": 90,
+    "сто": 100, "двести": 200, "триста": 300,
+}
+_UNITS = {
+    "сек": 1, "секунд": 1, "секунду": 1, "секунды": 1,
+    "мин": 60, "минут": 60, "минуту": 60, "минуты": 60,
+    "час": 3600, "часа": 3600, "часов": 3600,
+    "день": 86400, "дня": 86400, "дней": 86400,
+}
+_WEEKDAYS = {
+    "понедельник": 0, "понедельникам": 0,
+    "вторник": 1, "вторникам": 1,
+    "среда": 2, "среду": 2, "средам": 2,
+    "четверг": 3, "четвергам": 3,
+    "пятница": 4, "пятницу": 4, "пятницам": 4,
+    "суббота": 5, "субботу": 5, "субботам": 5,
+    "воскресенье": 6, "воскресеньям": 6,
+}
+_DAYPARTS = {"утром": "morning", "днем": "afternoon",
+             "вечером": "evening", "ночью": "night"}
+
+
+def _normalize(value: str) -> str:
+    return re.sub(r"\s+", " ", value.casefold().replace("ё", "е")).strip()
+
+
+def number(value: str) -> int | None:
+    """Safely interpret decimal or descending Russian cardinal terms."""
+    raw = _normalize(value)
+    if raw.isdecimal():
+        return int(raw)
+    words = raw.split()
+    if not words or len(words) > 3 or any(w not in _NUMBERS for w in words):
+        return None
+    parts = [_NUMBERS[w] for w in words]
+    if any(a <= b for a, b in zip(parts, parts[1:])):
+        return None
+    if len(parts) > 1 and parts[-2] in range(10, 20):
+        return None
+    return sum(parts)
+
+
+def _relative(s: str):
+    pattern = re.compile(
+        r"\b(?:через|спустя)\s+(\d+|[а-я]+(?:\s+[а-я]+){0,2})\s+"
+        r"(секунд(?:у|ы)?|сек|минут(?:у|ы)?|мин|час(?:а|ов)?|день|дня|дней)\b"
+    )
+    for m in pattern.finditer(s):
+        n = number(m.group(1))
+        if n is not None and n > 0:
+            return m.start(), timedelta(seconds=n * _UNITS[m.group(2)])
+    for phrase, seconds in (
+        ("через полчаса", 1800), ("через пол часа", 1800),
+        ("через полтора часа", 5400), ("через полторы минуты", 90),
+        ("через четверть часа", 900),
+    ):
+        at = s.find(phrase)
+        if at >= 0:
+            return at, timedelta(seconds=seconds)
+    return None
+
+
+def _weekday(s: str):
+    for m in re.finditer(r"\b(каждый|по|в)\s+([а-я]+)\b", s):
+        if m.group(2) in _WEEKDAYS:
+            return m.start(), _WEEKDAYS[m.group(2)], m.group(1) != "в"
+    return None
+
+
+def _clock(s: str, defaults):
+    expr = re.compile(
+        r"\bв\s+(\d{1,2}|[а-я]+(?:\s+(?:один|одна|два|две|три|четыре|пять|шесть|семь|восемь|девять))?)"
+        r"(?::(\d{2}))?(?:\s+час(?:ов|а)?)?"
+        r"(?:\s+(\d{1,2}|[а-я]+)\s+минут(?:у|ы)?)?"
+        r"(?:\s+(утра|утром|дня|днем|вечера|вечером|ночи|ночью))?\b"
+    )
+    for m in expr.finditer(s):
+        hour = number(m.group(1))
+        minute = number(m.group(2) or m.group(3) or "0")
+        if hour is None or minute is None or hour > 23 or minute > 59:
+            continue
+        part = m.group(4) or ""
+        if part in ("дня", "днем", "вечера", "вечером") and hour < 12:
+            hour += 12
+        if part in ("утра", "утром", "ночи", "ночью") and hour == 12:
+            hour = 0
+        return m.start(), hour, minute
+    for m in re.finditer(r"\b(утром|днем|вечером|ночью)\b", s):
+        key = _DAYPARTS[m.group(1)]
+        if hasattr(defaults, "of"):
+            hour, minute = defaults.of(key)
+        else:
+            hour, minute = {"morning": (8, 15), "afternoon": (14, 0),
+                            "evening": (21, 0), "night": (21, 0)}[key]
+        return m.start(), hour, minute
+    return None
+
+
+def read_time(sentence: str, now: datetime, default_time=(8, 15)):
+    """Return (leading text, due, recurrence) or None for unsupported times."""
+    s = _normalize(sentence)
+    relative = _relative(s)
+    if relative:
+        return s[:relative[0]].strip(" ,"), now + relative[1], None
+    day = re.search(r"\b(сегодня|завтра|послезавтра)\b", s)
+    offset = {"сегодня": 0, "завтра": 1, "послезавтра": 2}.get(day.group(1)) if day else None
+    weekday = _weekday(s)
+    clock = _clock(s, default_time)
+    if not (day or weekday or clock):
+        return s, None, None
+    hour, minute = clock[1:] if clock else tuple(default_time)
+    if weekday:
+        delta = (weekday[1] - now.weekday()) % 7
+        due = (now + timedelta(days=delta)).replace(
+            hour=hour, minute=minute, second=0, microsecond=0
+        )
+        if due <= now:
+            due += timedelta(days=7)
+        rule = ("FREQ=WEEKLY;BYDAY=" + "MO TU WE TH FR SA SU".split()[weekday[1]]) if weekday[2] else None
+    else:
+        due = (now + timedelta(days=offset or 0)).replace(
+            hour=hour, minute=minute, second=0, microsecond=0
+        )
+        if offset is None and due <= now:
+            due += timedelta(days=1)
+        elif due <= now:
+            return s, None, None
+        rule = None
+    first = min(i for i in (day.start() if day else None,
+                            weekday[0] if weekday else None,
+                            clock[0] if clock else None) if i is not None)
+    return s[:first].strip(" ,"), due, rule
+
+
+def parse_edit_answer(sentence: str, now: datetime, default_time=(8, 15)):
+    """Interpret Russian replies to the edit follow-up without altering English."""
+    said = _normalize(sentence).rstrip(" .!?")
+    if not said:
+        return None, None, None
+    name = re.match(r"^(?:измени|поменяй|замени|назови)\s+"
+                    r"(?:текст|название|напоминание)\s+(?:на|в)\s+", said)
+    if name:
+        return said[name.end():] or None, None, None
+    time = re.match(r"^(?:измени|поменяй|перенеси|поставь|установи)\s+"
+                    r"(?:(?:время|дату|срок|напоминание)\s+)?(?:на|к|в)\s+", said)
+    if time:
+        rest = said[time.end():]
+        if re.fullmatch(r"\d{1,2}(?::\d{2})?", rest):
+            rest = "в " + rest
+        _, due, rule = read_time(rest, now, default_time)
+        return None, due, rule
+    lead, due, rule = read_time(said, now, default_time)
+    return ((lead or None), due, rule) if due is not None else (said, None, None)
