@@ -33,7 +33,7 @@ lists = {
 
 CASES = [
     # Exact user utterance: 4.5 hours must resolve to a SET intent, not fallback.
-    ("Напомни покормить малыша через четыре с половиной часа", "CustomReminderSet", {"rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
+    ("Напомни покормить малыша через четыре с половиной часа", "CustomReminderSet", {"reminder_text": "покормить малыша", "rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
     ("напомни через 4 с половиной часа покормить малыша", "CustomReminderSet", {"rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
     ("напомни проверить почту через восемь с половиной часов", "CustomReminderSet", {"rel_num": 8, "rel_unit": "hours", "rel_fraction": "half"}),
     ("напомни купить хлеб через два с половиной дня", "CustomReminderSet", {"rel_num": 2, "rel_unit": "days", "rel_fraction": "half"}),
