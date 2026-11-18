@@ -32,5 +32,7 @@ jobs:
         run: python tests/test_ru_voice.py
       - name: Russian satellite speech and dialogue tests
         run: python tests/test_ru_dialogues.py
+      - name: Russian delivery channels and legacy language tests
+        run: python tests/test_ru_delivery.py
       - name: Russian Hassil recognition tests
         run: python tests/test_ru_hassil.py
