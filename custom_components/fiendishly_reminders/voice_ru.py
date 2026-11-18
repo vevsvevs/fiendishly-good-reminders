@@ -171,3 +171,63 @@ def parse_edit_answer(sentence: str, now: datetime, default_time=(8, 15)):
         return None, due, rule
     lead, due, rule = read_time(said, now, default_time)
     return ((lead or None), due, rule) if due is not None else (said, None, None)
+
+
+# Speech output is rendered from the *stored* reminder and its calculated due
+# datetime, never from the original STT text (which may contain word numerals).
+def clock(when: datetime) -> str:
+    return f"{when.hour:02d}:{when.minute:02d}"
+
+
+def moment(when: datetime) -> str:
+    return f"{when.day:02d}.{when.month:02d}.{when.year} в {clock(when)}"
+
+
+def delivery_header(name: str | None = None) -> str:
+    return f"Напоминание для {name}" if name else "Напоминание"
+
+
+YES_SENTENCES = ["да", "да конечно", "подтверждаю", "верно", "правильно",
+                 "удали", "отмени", "отменяй", "да отмени"]
+NO_SENTENCES = ["нет", "не надо", "не отменяй", "оставь", "оставить",
+                "нет спасибо", "отмена", "стоп", "передумал", "передумала"]
+
+
+MESSAGES = {
+    "no_text": "Не удалось разобрать, о чём нужно напомнить.",
+    "no_time": "Не удалось определить время напоминания.",
+    "past_time": "Это время уже прошло.",
+    "no_repeat": "Не удалось определить расписание повторения.",
+    "repeat_invalid": "Такую периодичность установить не удалось.",
+    "created": "Напоминание «{text}» установлено на {when}.",
+    "recurring_created": "Повторяющееся напоминание «{text}» создано. Первое срабатывание — {when}.",
+    "again_created": "Повторное напоминание «{text}» установлено на {when}.",
+    "no_last": "Нет предыдущего напоминания для повторения.",
+    "no_reminders": "Напоминаний нет.",
+    "reminder_count": "Всего напоминаний: {count}.",
+    "next_reminder": "Следующее напоминание — «{text}», {when}.",
+    "list_header": "Запланировано напоминаний: {count}.",
+    "list_item": "«{text}» — {when}",
+    "find_empty": "Подходящих напоминаний не найдено.",
+    "find_header": "Найдено напоминаний: {count}.",
+    "fallback_empty": "Не удалось разобрать команду напоминания.",
+    "ask_when": "Когда напомнить? Время по умолчанию — {time}.",
+    "ask_when_retry": "Не удалось разобрать время. Скажите, когда напомнить.",
+    "asked_when_created": "Напоминание «{text}» создано на {when}.",
+    "asked_when_default": "Использовано время по умолчанию. Напоминание «{text}» создано на {when}.",
+    "ask_edit": "Что изменить? Скажите «измени текст на», «перенеси на» или «замени на».",
+    "ask_edit_unchanged": "Изменений нет.",
+    "ask_edit_missing": "Напоминание больше не найдено.",
+    "ask_edit_error": "Не удалось разобрать изменение. Напоминание не изменено.",
+    "ask_edit_done": "Напоминание «{text}» изменено. Следующее срабатывание — {when}.",
+    "confirm_cancel": "Отменить напоминание «{text}»? Ответьте да или нет.",
+    "cancel_none": "Напоминание для отмены не найдено.",
+    "cancel_one": "Напоминание отменено.",
+    "cancel_many": "Отменено напоминаний: {count}.",
+    "no_list": "Напоминания ещё не настроены.",
+    "not_found": "Такое напоминание не найдено.",
+}
+
+
+def message(key: str, **values) -> str:
+    return MESSAGES[key].format(**values)
