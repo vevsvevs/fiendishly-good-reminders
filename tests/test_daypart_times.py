@@ -115,4 +115,12 @@ check("daypart wins", first_at(slots(recur="weekly", weekday=1, daypart="morning
 check("move to a weekday keeps 5pm",
       at(it.when_from_slots(NOW, slots(weekday=3), KEEP)), (17, 0, 10))
 
+# Regression: explicit "today at 8" cannot turn into "tomorrow at 8" at 10 AM.
+check("explicit today is past, not tomorrow",
+      at(it.when_from_slots(NOW, slots(day_offset=0, hour=8), T)), (8, 0, 6))
+check("bare past hour rolls to tomorrow",
+      at(it.when_from_slots(NOW, slots(hour=8), T)), (8, 0, 7))
+check("explicit tomorrow stays tomorrow",
+      at(it.when_from_slots(NOW, slots(day_offset=1, hour=8), T)), (8, 0, 7))
+
 print("\nPASS" if ok else "\nFAILED"); sys.exit(0 if ok else 1)
