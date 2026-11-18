@@ -804,7 +804,8 @@ class ReminderIntent(intent.IntentHandler):
         spoken = _text(intent_obj.slots, "person")
         routed, ambiguous = self._route(hass, intent_obj)
         if routed is None and spoken and _lists(hass):
-            return None, f"I don't have a list for {spoken}.", False
+            return None, (_ru_message("unknown_list", name=spoken) if _is_ru(intent_obj)
+                          else f"I don't have a list for {spoken}."), False
         return routed or self._manager(hass), None, ambiguous
 
     def _respond(self, intent_obj: intent.Intent) -> intent.IntentResponse:
@@ -887,12 +888,16 @@ class ReminderIntent(intent.IntentHandler):
         """
         if len(_lists(hass)) > 1:
             return self._which_list(hass)
+        locale = (getattr(getattr(hass, "config", None), "language", "en") or "en").lower()
         if not hass.is_running:
-            return "Hold on, I'm still wakin' up."
-        return "Reminders ain't set up."
+            return _ru_message("not_ready") if locale.startswith("ru") else "Hold on, I'm still wakin' up."
+        return _ru_message("no_list") if locale.startswith("ru") else "Reminders ain't set up."
 
     def _which_list(self, hass: HomeAssistant) -> str:
         names = " or ".join(sorted(m.name for m in _lists(hass)))
+        locale = (getattr(getattr(hass, "config", None), "language", "en") or "en").lower()
+        if locale.startswith("ru"):
+            return _ru_message("which_list", names=names)
         return f"Whose list do you mean - {names}? Say a name and I'll sort it."
 
     def _say(self, intent_obj: intent.Intent, speech: str) -> intent.IntentResponse:
@@ -1755,7 +1760,7 @@ class CancelReminderIntent(ReminderIntent):
 
         question = ( _ru_message("confirm_cancel", text=matches[0].text)
                      if _is_ru(intent_obj) and len(matches) == 1
-                     else (f"Отменить {len(matches)} напоминаний? Подтверждаете?"
+                     else (f"Отменить несколько напоминаний ({len(matches)})? Подтверждаете?"
                            if _is_ru(intent_obj) else self._question(matches, now)) )
         hass.async_create_background_task(
             _confirm_then_cancel(
