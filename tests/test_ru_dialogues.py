@@ -232,7 +232,6 @@ def case_confirm_no():
 check("cancel: Russian refusal",case_confirm_no)
 
 def case_intent_locale():
-    from fr import all_managers as previous
     h=Sat([]); h.config.language="en"
     obj=types.SimpleNamespace(language="ru",hass=h)
     from fr import intents
