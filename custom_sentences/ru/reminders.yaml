@@ -34,7 +34,7 @@ intents:
           - "<fgr_start> через полторы минуты {reminder_text}"
         slots:
           rel_num: 90
-          rel_unit: "minutes"
+          rel_unit: "seconds"
       - sentences:
           - "<fgr_start> {reminder_text} через четверть часа"
           - "<fgr_start> через четверть часа {reminder_text}"
@@ -58,8 +58,8 @@ intents:
           - "<fgr_start> {reminder_text} в {hour} {minute}"
           - "<fgr_start> {reminder_text} в {hour}:{minute}"
           - "<fgr_start> в {hour}:{minute} {reminder_text}"
-          - "<fgr_start> {reminder_text} в {hour} <fgr_daypart>"
-          - "<fgr_start> в {hour} <fgr_daypart> {reminder_text}"
+          - "<fgr_start> {reminder_text} в {hour} {ampm}"
+          - "<fgr_start> в {hour} {ampm} {reminder_text}"
       - sentences:
           - "<fgr_start> {reminder_text} сегодня в {hour} {ampm}"
           - "<fgr_start> {reminder_text} сегодня в {hour} часов"
@@ -67,8 +67,6 @@ intents:
           - "<fgr_start> сегодня в {hour} часов {reminder_text}"
           - "<fgr_start> {reminder_text} сегодня в {hour}:{minute}"
           - "<fgr_start> сегодня в {hour}:{minute} {reminder_text}"
-          - "<fgr_start> {reminder_text} сегодня <fgr_daypart>"
-          - "<fgr_start> сегодня <fgr_daypart> {reminder_text}"
         slots:
           day_offset: 0
       - sentences:
@@ -78,8 +76,6 @@ intents:
           - "<fgr_start> завтра в {hour} часов {reminder_text}"
           - "<fgr_start> {reminder_text} завтра в {hour}:{minute}"
           - "<fgr_start> завтра в {hour}:{minute} {reminder_text}"
-          - "<fgr_start> {reminder_text} завтра <fgr_daypart>"
-          - "<fgr_start> завтра <fgr_daypart> {reminder_text}"
         slots:
           day_offset: 1
       - sentences:
@@ -89,8 +85,6 @@ intents:
           - "<fgr_start> послезавтра в {hour} часов {reminder_text}"
           - "<fgr_start> {reminder_text} послезавтра в {hour}:{minute}"
           - "<fgr_start> послезавтра в {hour}:{minute} {reminder_text}"
-          - "<fgr_start> {reminder_text} послезавтра <fgr_daypart>"
-          - "<fgr_start> послезавтра <fgr_daypart> {reminder_text}"
         slots:
           day_offset: 2
       - sentences:
@@ -99,6 +93,127 @@ intents:
           - "<fgr_start> в {weekday} в {hour} {ampm} {reminder_text}"
           - "<fgr_start> в {weekday} {reminder_text}"
           - "<fgr_start> {reminder_text} в {weekday}"
+  # Time-of-day with no explicit clock hour: use configured per-list defaults.
+  # сегодня утром
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} сегодня утром"
+          - "<fgr_start> сегодня утром {reminder_text}"
+        slots:
+          day_offset: 0
+          daypart: "morning"
+  # сегодня днём
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} сегодня днём"
+          - "<fgr_start> сегодня днём {reminder_text}"
+        slots:
+          day_offset: 0
+          daypart: "afternoon"
+  # сегодня днем
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} сегодня днем"
+          - "<fgr_start> сегодня днем {reminder_text}"
+        slots:
+          day_offset: 0
+          daypart: "afternoon"
+  # сегодня вечером
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} сегодня вечером"
+          - "<fgr_start> сегодня вечером {reminder_text}"
+        slots:
+          day_offset: 0
+          daypart: "evening"
+  # сегодня ночью
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} сегодня ночью"
+          - "<fgr_start> сегодня ночью {reminder_text}"
+        slots:
+          day_offset: 0
+          daypart: "night"
+  # завтра утром
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} завтра утром"
+          - "<fgr_start> завтра утром {reminder_text}"
+        slots:
+          day_offset: 1
+          daypart: "morning"
+  # завтра днём
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} завтра днём"
+          - "<fgr_start> завтра днём {reminder_text}"
+        slots:
+          day_offset: 1
+          daypart: "afternoon"
+  # завтра днем
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} завтра днем"
+          - "<fgr_start> завтра днем {reminder_text}"
+        slots:
+          day_offset: 1
+          daypart: "afternoon"
+  # завтра вечером
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} завтра вечером"
+          - "<fgr_start> завтра вечером {reminder_text}"
+        slots:
+          day_offset: 1
+          daypart: "evening"
+  # завтра ночью
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} завтра ночью"
+          - "<fgr_start> завтра ночью {reminder_text}"
+        slots:
+          day_offset: 1
+          daypart: "night"
+  # послезавтра утром
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} послезавтра утром"
+          - "<fgr_start> послезавтра утром {reminder_text}"
+        slots:
+          day_offset: 2
+          daypart: "morning"
+  # послезавтра днём
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} послезавтра днём"
+          - "<fgr_start> послезавтра днём {reminder_text}"
+        slots:
+          day_offset: 2
+          daypart: "afternoon"
+  # послезавтра днем
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} послезавтра днем"
+          - "<fgr_start> послезавтра днем {reminder_text}"
+        slots:
+          day_offset: 2
+          daypart: "afternoon"
+  # послезавтра вечером
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} послезавтра вечером"
+          - "<fgr_start> послезавтра вечером {reminder_text}"
+        slots:
+          day_offset: 2
+          daypart: "evening"
+  # послезавтра ночью
+  # slot daypart is read by _resolve_time; day_offset is read by when_from_slots.
+      - sentences:
+          - "<fgr_start> {reminder_text} послезавтра ночью"
+          - "<fgr_start> послезавтра ночью {reminder_text}"
+        slots:
+          day_offset: 2
+          daypart: "night"
   CustomReminderRecurring:
     data:
       - sentences:
@@ -171,7 +286,7 @@ intents:
   CustomReminderSkip:
     data:
       - sentences:
-          - "(пропусти|пропустить|перенеси) следующее напоминание [о|про] {reminder_text}"
+          - "(пропусти|пропустить|пропусти) следующее напоминание [о|про] {reminder_text}"
           - "(пропусти|не выполняй) [одно] [следующее] напоминание [о|про] {reminder_text}"
         slots:
           scope: "next"
@@ -213,7 +328,6 @@ intents:
           - "(какие|что за) напоминания [у меня] (сегодня|на сегодня)"
       - sentences:
           - "(какие|покажи|назови) [у меня] напоминания сегодня"
-          - "(что|какие напоминания) [мне] [нужно] [сделать] сегодня"
         slots:
           when_kind: "today"
       - sentences:
@@ -271,7 +385,6 @@ intents:
 expansion_rules:
   fgr_start: "(напомни|напомните|пожалуйста напомни) [мне] [пожалуйста]"
   fgr_repeat: "(напоминай|напоминайте|напомни|напомните) [мне] [пожалуйста]"
-  fgr_daypart: "(утром|днём|днем|вечером|ночью)"
 lists:
   reminder_text:
     wildcard: true
