@@ -865,7 +865,7 @@ class ReminderIntent(intent.IntentHandler):
         hass.async_create_background_task(
             _ask_whose_then_answer(
                 hass, satellite, managers, answer,
-                getattr(intent_obj, "language", "en") or "en"),
+                _intent_language(intent_obj, hass)),
             name="reminders_ask_whose_read",
         )
         return self._say(intent_obj, "")
@@ -883,7 +883,7 @@ class ReminderIntent(intent.IntentHandler):
         hass.async_create_background_task(
             _ask_whose_then_schedule(
                 hass, satellite, managers, text, due, rrule,
-                getattr(intent_obj, "language", "en") or "en"),
+                _intent_language(intent_obj, hass)),
             name="reminders_ask_whose",
         )
         return self._say(intent_obj, "")
@@ -1200,7 +1200,7 @@ class SkipReminderIntent(ReminderIntent):
                 hass.async_create_background_task(
                     _confirm_then_cancel(hass, manager, satellite, matches, question,
                                          skip=as_skip,
-                                         language=getattr(intent_obj, "language", "en") or "en"),
+                                         language=_intent_language(intent_obj, hass)),
                     name="reminders_confirm_skip",
                 )
                 return self._say(intent_obj, "")
@@ -1208,14 +1208,14 @@ class SkipReminderIntent(ReminderIntent):
                 # Nothing to skip on a one-off; the request means cancel.
                 count = manager.cancel_reminders(matches)
                 return self._say(intent_obj, _canceled_speech(
-                    count, getattr(intent_obj, "language", "en") or "en"))
+                    count, _intent_language(intent_obj, hass)))
 
         result = manager.skip(needle, scope)
 
         # No confirmation, unlike canceling: this drops one occurrence and leaves the
         # series running, and the reply names what it dropped, so it announces itself.
         return self._say(intent_obj, _skip_speech(
-            result, scope, now, getattr(intent_obj, "language", "en") or "en"))
+            result, scope, now, _intent_language(intent_obj, hass)))
 
 
 # ---------------------------------------------------------------- cancel
@@ -1772,7 +1772,7 @@ class CancelReminderIntent(ReminderIntent):
             # nowhere to put a question, so cancel and answer in text.
             return self._say(intent_obj, _canceled_speech(
                 manager.cancel_reminders(matches),
-                getattr(intent_obj, "language", "en") or "en"))
+                _intent_language(intent_obj, hass)))
 
         question = ( _ru_message("confirm_cancel", text=matches[0].text)
                      if _is_ru(intent_obj) and len(matches) == 1
@@ -1781,7 +1781,7 @@ class CancelReminderIntent(ReminderIntent):
         hass.async_create_background_task(
             _confirm_then_cancel(
                 hass, manager, satellite, matches, question,
-                language=getattr(intent_obj, "language", "en") or "en"),
+                language=_intent_language(intent_obj, hass)),
             name="reminders_confirm_cancel",
         )
         # Silence: the detached task above owns everything the user will hear.
@@ -1998,7 +1998,7 @@ class EditReminderIntent(ReminderIntent):
                 )
             hass.async_create_background_task(
                 _ask_then_edit(hass, manager, satellite, reminder.id, keep,
-                               getattr(intent_obj, "language", "en") or "en"),
+                               _intent_language(intent_obj, hass)),
                 name="reminders_ask_edit",
             )
             return self._say(intent_obj, "")
@@ -2131,7 +2131,7 @@ class ReminderFallbackIntent(ReminderIntent):
                 hass.async_create_background_task(
                     _ask_whose_then_when(
                         hass, self, satellite, _lists(hass), text,
-                        getattr(intent_obj, "language", "en") or "en",
+                        _intent_language(intent_obj, hass),
                     ),
                     name="reminders_ask_whose_when",
                 )
@@ -2153,7 +2153,7 @@ class ReminderFallbackIntent(ReminderIntent):
             _ask_when_then_schedule(
                 hass, manager, satellite, text, question,
                 self._default_time(manager), self._whose(hass, manager) or "you",
-                getattr(intent_obj, "language", "en") or "en",
+                _intent_language(intent_obj, hass),
             ),
             name="reminders_ask_when",
         )
