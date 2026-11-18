@@ -123,4 +123,27 @@ check("bare past hour rolls to tomorrow",
 check("explicit tomorrow stays tomorrow",
       at(it.when_from_slots(NOW, slots(day_offset=1, hour=8), T)), (8, 0, 7))
 
+# Fractional Russian offsets must add the fraction, never truncate it to an int.
+check("4.5 hours = 4h 30m",
+      it.when_from_slots(NOW, slots(rel_num=4, rel_unit="hours", rel_fraction="half")),
+      NOW + datetime.timedelta(hours=4, minutes=30))
+check("2.5 days = 60h",
+      it.when_from_slots(NOW, slots(rel_num=2, rel_unit="days", rel_fraction="half")),
+      NOW + datetime.timedelta(hours=60))
+check("7.5 minutes = 450 seconds",
+      it.when_from_slots(NOW, slots(rel_num=7, rel_unit="minutes", rel_fraction="half")),
+      NOW + datetime.timedelta(seconds=450))
+check("3.25 hours = 3h 15m",
+      it.when_from_slots(NOW, slots(rel_num=3, rel_unit="hours", rel_fraction="quarter")),
+      NOW + datetime.timedelta(hours=3, minutes=15))
+check("3.75 hours = 3h 45m",
+      it.when_from_slots(NOW, slots(rel_num=3, rel_unit="hours", rel_fraction="three_quarters")),
+      NOW + datetime.timedelta(hours=3, minutes=45))
+check("old whole-number durations unchanged",
+      it.when_from_slots(NOW, slots(rel_num=4, rel_unit="hours")),
+      NOW + datetime.timedelta(hours=4))
+check("unknown fraction fails closed",
+      it.when_from_slots(NOW, slots(rel_num=4, rel_unit="hours", rel_fraction="bogus")),
+      None)
+
 print("\nPASS" if ok else "\nFAILED"); sys.exit(0 if ok else 1)
