@@ -1076,7 +1076,8 @@ class RemindAgainIntent(ReminderIntent):
 
         last = (manager.store.last_text or "").strip()
         if not last:
-            return self._say(intent_obj, "Beg pardon, I don't have a reminder to repeat.")
+            return self._say(intent_obj, _ru_message("no_last") if _is_ru(intent_obj)
+                             else "Beg pardon, I don't have a reminder to repeat.")
 
         now = dt_util.now()
         when = when_from_slots(now, intent_obj.slots, self._default_time(manager))
@@ -1088,7 +1089,11 @@ class RemindAgainIntent(ReminderIntent):
         try:
             manager.schedule(last, when)
         except PastDue:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
+        if _is_ru(intent_obj):
+            return self._say(intent_obj, _ru_message(
+                "again_created", text=last, when=_ru_moment(when)))
         whose = self._whose(hass, manager) or "you"
         return self._say(
             intent_obj,
@@ -1692,7 +1697,12 @@ class ListRemindersIntent(ReminderIntent):
         upcoming = manager.store.upcoming()
         who = self._whose(hass, manager)
         if not upcoming:
-            return f"{who} ain't got any reminders set." if who else "You ain't got any reminders set."
+            return _ru_message("no_reminders") if _is_ru(intent_obj) else (
+                f"{who} ain't got any reminders set." if who else "You ain't got any reminders set.")
+        if _is_ru(intent_obj):
+            parts = [_ru_message("list_item", text=r.text, when=_ru_moment(r.due))
+                     for r in upcoming[:self.LIMIT]]
+            return _ru_message("list_header", count=len(upcoming)) + " " + "; ".join(parts) + "."
         now = dt_util.now()
         parts = [describe(r, now) for r in upcoming[: self.LIMIT]]
         count = len(upcoming)
@@ -1759,6 +1769,15 @@ class FindRemindersIntent(ReminderIntent):
 
         start, end = window if window else (None, None)
         found = manager.search(needle, start, end)
+        if _is_ru(intent_obj):
+            if not found:
+                return _ru_message("find_empty")
+            parts = []
+            for reminder, occurrences in found[:self.LIMIT]:
+                when = occurrences[0] if occurrences else reminder.due
+                parts.append(_ru_message("list_item", text=reminder.text,
+                                         when=_ru_moment(when)))
+            return _ru_message("find_header", count=len(found)) + " " + "; ".join(parts) + "."
         who = self._whose(hass, manager)
         if not found:
             empty = f"{who}'s got nothin'" if who else "You've got nothin'"
@@ -1904,7 +1923,11 @@ class NextReminderIntent(ReminderIntent):
         upcoming = manager.store.upcoming()
         who = self._whose(hass, manager)
         if not upcoming:
-            return f"{who} ain't got any reminders set." if who else "You ain't got any reminders set."
+            return _ru_message("no_reminders") if _is_ru(intent_obj) else (
+                f"{who} ain't got any reminders set." if who else "You ain't got any reminders set.")
+        if _is_ru(intent_obj):
+            return _ru_message("next_reminder", text=upcoming[0].text,
+                               when=_ru_moment(upcoming[0].due))
         whose = f"{who}'s next reminder" if who else "Your next reminder"
         return f"{whose} is {describe(upcoming[0], dt_util.now())}."
 
@@ -1921,6 +1944,8 @@ class CountRemindersIntent(ReminderIntent):
         # The same number todo.reminders shows as its state, counted from the store so
         # that renaming the entity cannot break the answer.
         count = len(manager.store.reminders)
+        if _is_ru(intent_obj):
+            return _ru_message("reminder_count", count=count)
         who = self._whose(hass, manager)
         subject = f"{who} currently has" if who else "You currently have"
         if count == 0:
@@ -1945,7 +1970,8 @@ class ReminderFallbackIntent(ReminderIntent):
 
         text = _task_only(_text(intent_obj.slots, "fallback_rest"))
         if not text:
-            return self._say(intent_obj, "No comprende, partner.")
+            return self._say(intent_obj, _ru_message("fallback_empty") if _is_ru(intent_obj)
+                             else "No comprende, partner.")
 
         if ambiguous:
             # Neither whose nor when was given. Both get asked, in that order - the
@@ -1964,8 +1990,11 @@ class ReminderFallbackIntent(ReminderIntent):
         if manager is None:
             return self._say(intent_obj, self._not_ready(hass))
 
-        question = ("When should this reminder occur? "
-                    f"Default is {self._default_time_phrase(manager)}.")
+        question = (_ru_message(
+            "ask_when", time="%02d:%02d" % tuple(self._default_time(manager)))
+            if _is_ru(intent_obj) else
+            ("When should this reminder occur? "
+             f"Default is {self._default_time_phrase(manager)}."))
         satellite = self._satellite(hass, manager, intent_obj)
         if satellite is None:
             # Nothing to ask ON, so there is no turn to answer into. The question is
