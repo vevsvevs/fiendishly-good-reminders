@@ -32,6 +32,17 @@ lists = {
 }
 
 CASES = [
+    ("напомни завтра в 9 купить хлеб", "CustomReminderSet", {"day_offset": 1, "hour": 9}),
+    ("напомни проверить плиту через пару минут", "CustomReminderSet", {"rel_num": 2, "rel_unit": "minutes"}),
+    ("напомни купить воду через часик", "CustomReminderSet", {"rel_num": 1, "rel_unit": "hours"}),
+    ("напомни позвонить в восемь", "CustomReminderSet", {"hour": 8}),
+    ("напомни выгулять собаку во вторник", "CustomReminderSet", {"weekday": 1}),
+    ("напоминай пить таблетки каждую пятницу", "CustomReminderRecurring", {"recur": "weekly", "weekday": 4}),
+    ("напоминай покупать хлеб по вторникам в девять утра", "CustomReminderRecurring", {"recur": "weekly", "weekday": 1, "hour": 9, "ampm": "am"}),
+    ("напоминай поливать цветы ежедневно в девять", "CustomReminderRecurring", {"recur": "daily", "hour": 9}),
+    ("напоминай принимать витамины каждый день вечером", "CustomReminderRecurring", {"recur": "daily", "daypart": "evening"}),
+    ("напомни проверить почту завтра вечером", "CustomReminderSet", {"day_offset": 1, "daypart": "evening"}),
+    ("напомни сходить к врачу через полтора часа", "CustomReminderSet", {"rel_num": 90, "rel_unit": "minutes"}),
     ("напомни купить молоко через двадцать минут", "CustomReminderSet", {"rel_num": 20, "rel_unit": "minutes"}),
     ("напомни через 5 минут купить молоко", "CustomReminderSet", {"rel_num": 5, "rel_unit": "minutes"}),
     ("напомни позвонить через полчаса", "CustomReminderSet", {"rel_num": 30, "rel_unit": "minutes"}),
