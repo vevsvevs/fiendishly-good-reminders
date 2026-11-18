@@ -214,6 +214,63 @@ intents:
         slots:
           day_offset: 2
           daypart: "night"
+      - sentences:
+          - "<fgr_start> {reminder_text} в {hour}"
+          - "<fgr_start> в {hour} {reminder_text}"
+      - sentences:
+          - "<fgr_start> {reminder_text} через минутку"
+          - "<fgr_start> через минутку {reminder_text}"
+        slots:
+          rel_num: 1
+          rel_unit: "minutes"
+      - sentences:
+          - "<fgr_start> {reminder_text} через пару минут"
+          - "<fgr_start> через пару минут {reminder_text}"
+        slots:
+          rel_num: 2
+          rel_unit: "minutes"
+      - sentences:
+          - "<fgr_start> {reminder_text} через часик"
+          - "<fgr_start> через часик {reminder_text}"
+        slots:
+          rel_num: 1
+          rel_unit: "hours"
+      - sentences:
+          - "<fgr_start> {reminder_text} через часок"
+          - "<fgr_start> через часок {reminder_text}"
+        slots:
+          rel_num: 1
+          rel_unit: "hours"
+      - sentences:
+          - "<fgr_start> {reminder_text} через два с половиной часа"
+          - "<fgr_start> через два с половиной часа {reminder_text}"
+        slots:
+          rel_num: 150
+          rel_unit: "minutes"
+      - sentences:
+          - "<fgr_start> {reminder_text} через полтора дня"
+          - "<fgr_start> через полтора дня {reminder_text}"
+        slots:
+          rel_num: 36
+          rel_unit: "hours"
+      - sentences:
+          - "<fgr_start> {reminder_text} сегодня в {hour}"
+          - "<fgr_start> сегодня в {hour} {reminder_text}"
+        slots:
+          day_offset: 0
+      - sentences:
+          - "<fgr_start> {reminder_text} завтра в {hour}"
+          - "<fgr_start> завтра в {hour} {reminder_text}"
+        slots:
+          day_offset: 1
+      - sentences:
+          - "<fgr_start> {reminder_text} послезавтра в {hour}"
+          - "<fgr_start> послезавтра в {hour} {reminder_text}"
+        slots:
+          day_offset: 2
+      - sentences:
+          - "<fgr_start> {reminder_text} во {weekday} [в {hour} {ampm}]"
+          - "<fgr_start> во {weekday} {reminder_text}"
   CustomReminderRecurring:
     data:
       - sentences:
@@ -250,6 +307,58 @@ intents:
           - "<fgr_repeat> каждое {monthday} число [в {hour} {ampm}] {reminder_text}"
         slots:
           recur: "monthly"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} каждую {weekday} [в {hour} {ampm}]"
+          - "<fgr_repeat> каждую {weekday} [в {hour} {ampm}] {reminder_text}"
+          - "<fgr_repeat> {reminder_text} каждое {weekday} [в {hour} {ampm}]"
+          - "<fgr_repeat> {reminder_text} каждый {weekday} в {hour}"
+          - "<fgr_repeat> {reminder_text} по {weekday} в {hour}"
+          - "<fgr_repeat> {reminder_text} каждую {weekday} в {hour}"
+          - "<fgr_repeat> {reminder_text} еженедельно во {weekday} в {hour} {ampm}"
+        slots:
+          recur: "weekly"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} ежедневно в {hour}"
+          - "<fgr_repeat> {reminder_text} каждый день в {hour}"
+          - "<fgr_repeat> {reminder_text} ежедневно в {hour}:{minute}"
+          - "<fgr_repeat> {reminder_text} каждый день в {hour}:{minute}"
+        slots:
+          recur: "daily"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} каждый день утром"
+          - "<fgr_repeat> {reminder_text} ежедневно утром"
+          - "<fgr_repeat> каждый день утром {reminder_text}"
+        slots:
+          recur: "daily"
+          daypart: "morning"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} каждый день днём"
+          - "<fgr_repeat> {reminder_text} ежедневно днём"
+          - "<fgr_repeat> каждый день днём {reminder_text}"
+        slots:
+          recur: "daily"
+          daypart: "afternoon"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} каждый день днем"
+          - "<fgr_repeat> {reminder_text} ежедневно днем"
+          - "<fgr_repeat> каждый день днем {reminder_text}"
+        slots:
+          recur: "daily"
+          daypart: "afternoon"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} каждый день вечером"
+          - "<fgr_repeat> {reminder_text} ежедневно вечером"
+          - "<fgr_repeat> каждый день вечером {reminder_text}"
+        slots:
+          recur: "daily"
+          daypart: "evening"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} каждый день ночью"
+          - "<fgr_repeat> {reminder_text} ежедневно ночью"
+          - "<fgr_repeat> каждый день ночью {reminder_text}"
+        slots:
+          recur: "daily"
+          daypart: "night"
   CustomReminderCancel:
     data:
       - sentences:
