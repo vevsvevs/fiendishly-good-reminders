@@ -258,3 +258,34 @@ MESSAGES = {
 
 def message(key: str, **values) -> str:
     return MESSAGES[key].format(**values)
+
+
+# Announcements use second person, just as the original English integration does.
+# Restrict replacements to complete pronouns; never change substrings of names.
+_SELF_WORDS = {
+    "я": "ты", "меня": "тебя", "мне": "тебе", "мной": "тобой",
+    "мною": "тобою",
+    "мой": "твой", "моя": "твоя", "мое": "твоё", "мои": "твои",
+    "моего": "твоего", "моему": "твоему", "моем": "твоём",
+    "моей": "твоей", "мою": "твою", "моим": "твоим",
+    "моими": "твоими", "моих": "твоих",
+    "мы": "вы", "нас": "вас", "нам": "вам", "нами": "вами",
+    "наш": "ваш", "наша": "ваша", "наше": "ваше", "наши": "ваши",
+    "нашего": "вашего", "нашей": "вашей", "нашу": "вашу",
+    "нашим": "вашим", "наших": "ваших", "нашими": "вашими",
+}
+_SELF_RE = re.compile(r"\b(?:" + "|".join(map(re.escape, _SELF_WORDS)) + r")\b", re.I)
+
+
+def second_person(text: str) -> str:
+    """Convert Russian first-person pronouns in an announcement, not in storage."""
+    def replace(match: re.Match) -> str:
+        word = match.group(0)
+        result = _SELF_WORDS[word.lower().replace("ё", "е")]
+        if word.isupper():
+            return result.upper()
+        if word[0].isupper():
+            return result[0].upper() + result[1:]
+        return result
+
+    return _SELF_RE.sub(replace, text or "")
