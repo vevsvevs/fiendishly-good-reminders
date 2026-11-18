@@ -243,12 +243,21 @@ def when_from_slots(now: datetime, slots: dict,
 
     rel_num = _int(slots, "rel_num")
     if rel_num is not None:
+        # Normalized by Hassil, not by interpreting the spoken numeral as text.
+        # This handles "четыре с половиной часа" as 4.5 hours, and extends
+        # without enumerating every cardinal number or noun declension.
+        fraction = _text(slots, "rel_fraction")
+        fractions = {"": 0, "half": 0.5, "quarter": 0.25,
+                     "three_quarters": 0.75}
+        if fraction not in fractions:
+            return None
+        quantity = rel_num + fractions[fraction]
         unit = _text(slots, "rel_unit", "minutes")
         step = {
-            "seconds": timedelta(seconds=rel_num),
-            "minutes": timedelta(minutes=rel_num),
-            "hours": timedelta(hours=rel_num),
-            "days": timedelta(days=rel_num),
+            "seconds": timedelta(seconds=quantity),
+            "minutes": timedelta(minutes=quantity),
+            "hours": timedelta(hours=quantity),
+            "days": timedelta(days=quantity),
         }.get(unit)
         if step is None:
             return None
