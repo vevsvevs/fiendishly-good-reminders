@@ -110,7 +110,7 @@ check("RU persistent notification",
 
 domain, service, data = deliver("ru", "en", count=2)
 check("RU announcement for shared multi-owner system",
-      data["message"].startswith("Напоминание для Иван:"))
+      data["message"].startswith("Напоминание из списка «Иван»:"))
 
 check("Russian date formatting", "ноября" in voice_ru.moment(
     __import__("datetime").datetime(2026,11,18,9,30)))
