@@ -1304,7 +1304,10 @@ async def _ask_when_then_schedule(hass, manager, satellite: str, text: str,
         for attempt in range(ASK_REPEATS):
             said = await _ask_free(
                 hass, satellite,
-                question if attempt == 0 else f"Sorry - {question[0].lower()}{question[1:]}",
+                question if attempt == 0 else (
+                    _ru_message("ask_when_retry") if language.startswith("ru")
+                    else f"Sorry - {question[0].lower()}{question[1:]}"
+                ),
             )
             if said is None:
                 continue                    # silence is not an answer - ask again
@@ -1330,13 +1333,21 @@ async def _ask_when_then_schedule(hass, manager, satellite: str, text: str,
         every = f" {reminder.every_base}" if reminder.recurring else ""
         day = "" if reminder.recurring else day_phrase(reminder.due, now)
         tail = f"{text}{every} at {clock(reminder.due)}{day}{reminder.every_bound}."
+        if language.startswith("ru"):
+            await _announce(
+                hass, satellite, _ru_message(
+                    "asked_when_default" if used_default else "asked_when_created",
+                    text=text, when=_ru_moment(reminder.due)))
+            return
         # An unanswered question still creates the reminder, so the reply has to say the
         # time out loud - otherwise it is indistinguishable from having been ignored.
         opening = f"Right, the usual then. I'll remind {whose} to" if used_default \
             else f"Alright, I'll remind {whose} to"
         await _announce(hass, satellite, f"{opening} {tail}")
     except PastDue:
-        await _announce(hass, satellite, "That time has already passed.")
+        await _announce(hass, satellite,
+                        _ru_message("past_time") if language.startswith("ru")
+                        else "That time has already passed.")
     except Exception:  # noqa: BLE001
         _LOGGER.exception("reminders: could not place the reminder after asking when")
 
@@ -1460,35 +1471,50 @@ async def _ask_then_edit(hass, manager, satellite: str, reminder_id: str,
                 {"entity_id": satellite,
                  # The question teaches the three openings, because the answer is free
                  # speech and nothing else tells the user they exist.
-                 "question": "What should I change? Say change the reminder to, "
-                             "change the timing to, or replace with."},
+                 "question": (_ru_message("ask_edit") if language.startswith("ru")
+                              else "What should I change? Say change the reminder to, "
+                                   "change the timing to, or replace with.")},
                 blocking=True, return_response=True,
             )
         except HomeAssistantError as err:
             _LOGGER.info("reminders: no answer to the edit (%s), nothing changed", err)
-            await _announce(hass, satellite, "Alright, leavin' it be.")
+            await _announce(hass, satellite,
+                            _ru_message("ask_edit_unchanged") if language.startswith("ru")
+                            else "Alright, leavin' it be.")
             return
 
         said = (answer or {}).get("sentence") or ""
         reminder = manager.store.reminders.get(reminder_id)
         if reminder is None:
-            await _announce(hass, satellite, "Beg pardon, that one's gone now.")
+            await _announce(hass, satellite,
+                            _ru_message("ask_edit_missing") if language.startswith("ru")
+                            else "Beg pardon, that one's gone now.")
             return
 
         now = dt_util.now()
         text, due, rrule = parse_edit_answer(said, now, default_time, language)
         if text is None and due is None and rrule is None:
-            await _announce(hass, satellite, "Beg pardon, I didn't catch that. Nothin' changed.")
+            await _announce(hass, satellite,
+                            _ru_message("ask_edit_error") if language.startswith("ru")
+                            else "Beg pardon, I didn't catch that. Nothin' changed.")
             return
         try:
             manager.edit(reminder, text, due, rrule)
         except PastDue:
-            await _announce(hass, satellite, "That time has already passed. Nothin' changed.")
+            await _announce(hass, satellite,
+                            _ru_message("past_time") if language.startswith("ru")
+                            else "That time has already passed. Nothin' changed.")
             return
         except InvalidRule:
-            await _announce(hass, satellite, "I can't repeat one that often. Nothin' changed.")
+            await _announce(hass, satellite,
+                            _ru_message("repeat_invalid") if language.startswith("ru")
+                            else "I can't repeat one that often. Nothin' changed.")
             return
 
+        if language.startswith("ru"):
+            await _announce(hass, satellite, _ru_message(
+                "ask_edit_done", text=reminder.text, when=_ru_moment(reminder.due)))
+            return
         every = f" {reminder.every_base}" if reminder.recurring else ""
         await _announce(
             hass, satellite,
