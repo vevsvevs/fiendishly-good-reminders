@@ -1002,7 +1002,7 @@ class SetReminderIntent(ReminderIntent):
         if target is None:
             return self._say(intent_obj, self._which_list(hass, intent_obj))
         try:
-            target.schedule(text, when)
+            target.schedule(text, when, language=_intent_language(intent_obj, hass))
         except PastDue:
             return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
                              else "That time has already passed.")
@@ -1059,7 +1059,8 @@ class RecurringReminderIntent(ReminderIntent):
         if manager is None:
             return self._say(intent_obj, self._which_list(hass, intent_obj))
         try:
-            reminder = manager.schedule(text, when, rrule)
+            reminder = manager.schedule(text, when, rrule,
+                                        language=_intent_language(intent_obj, hass))
         except PastDue:
             return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
                              else "That time has already passed.")
@@ -1111,7 +1112,7 @@ class RemindAgainIntent(ReminderIntent):
                              else "That time has already passed.")
 
         try:
-            manager.schedule(last, when)
+            manager.schedule(last, when, language=_intent_language(intent_obj, hass))
         except PastDue:
             return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
                              else "That time has already passed.")
@@ -1360,7 +1361,7 @@ async def _ask_when_then_schedule(hass, manager, satellite: str, text: str,
             if due <= now:
                 due += timedelta(days=1)
 
-        reminder = manager.schedule(text, due, rrule)
+        reminder = manager.schedule(text, due, rrule, language=language)
         every = f" {reminder.every_base}" if reminder.recurring else ""
         day = "" if reminder.recurring else day_phrase(reminder.due, now)
         tail = f"{text}{every} at {clock(reminder.due)}{day}{reminder.every_bound}."
@@ -1493,7 +1494,7 @@ async def _ask_whose_then_schedule(hass, satellite: str, managers: list,
             )
             return
         manager = chosen
-        reminder = manager.schedule(text, due, rrule)
+        reminder = manager.schedule(text, due, rrule, language=language)
         if language.startswith("ru"):
             await _announce(hass, satellite, _ru_message(
                 "ask_whose_created", text=reminder.text,
