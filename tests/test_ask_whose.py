@@ -58,7 +58,7 @@ class FakeManager:
     def __init__(self,name,entry_id):
         self.name=name; self.scheduled=[]
         self.entry=types.SimpleNamespace(entry_id=entry_id)
-    def schedule(self,text,due,rrule=None):
+    def schedule(self,text,due,rrule=None, language=None):
         self.scheduled.append(text); return FakeReminder(due)
 
 class FakeHass:
