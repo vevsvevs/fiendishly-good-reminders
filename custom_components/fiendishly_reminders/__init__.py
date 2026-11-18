@@ -314,7 +314,12 @@ class ReminderManager:
         # list the name is noise - there is nobody else it could be for - and every
         # reminder anyone has already lived with would suddenly start announcing itself
         # differently.
-        header = f"Reminder for {self.name}" if len(all_managers(self.hass)) > 1 else "Reminder"
+        locale = (getattr(self.hass.config, "language", "en") or "en").lower()
+        if locale.startswith("ru"):
+            from .voice_ru import delivery_header
+            header = delivery_header(self.name if len(all_managers(self.hass)) > 1 else None)
+        else:
+            header = f"Reminder for {self.name}" if len(all_managers(self.hass)) > 1 else "Reminder"
 
         if targets and self._audible():
             data = {"message": f"{header}: {text}"}
