@@ -47,6 +47,16 @@ class RussianVoiceTests(unittest.TestCase):
                 self.assertIsNone(due)
                 self.assertIsNone(recurrence)
 
+    def test_confirmations_and_messages(self):
+        self.assertFalse(set(ru.YES_SENTENCES) & set(ru.NO_SENTENCES))
+        self.assertEqual(ru.message("created", text="проверить духовку",
+                                    when="18.11.2026 в 21:00"),
+                         "Напоминание «проверить духовку» установлено на 18.11.2026 в 21:00.")
+        self.assertIn("Отменено", ru.message("cancel_many", count=3))
+        self.assertIn("Напоминание", ru.delivery_header())
+        self.assertIn("Иван", ru.delivery_header("Иван"))
+        self.assertEqual(ru.clock(NOW), "09:00")
+
     def test_edit(self):
         self.assertEqual(ru.parse_edit_answer("измени название на купить молоко", NOW),
                          ("купить молоко", None, None))
