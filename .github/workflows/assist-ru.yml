@@ -30,5 +30,7 @@ jobs:
           done
       - name: Russian parser tests
         run: python tests/test_ru_voice.py
+      - name: Russian satellite speech and dialogue tests
+        run: python tests/test_ru_dialogues.py
       - name: Russian Hassil recognition tests
         run: python tests/test_ru_hassil.py
