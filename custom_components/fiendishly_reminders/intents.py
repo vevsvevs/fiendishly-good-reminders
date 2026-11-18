@@ -2037,7 +2037,8 @@ class EditReminderIntent(ReminderIntent):
 
             when = when_from_slots(now, slots, keep)
             if when is None:
-                return self._say(intent_obj, "Beg pardon, I couldn't work out when.")
+                return self._say(intent_obj, _ru_message("no_time") if _is_ru(intent_obj)
+                                 else "Beg pardon, I couldn't work out when.")
             was_recurring = reminder.recurring
             manager.edit(reminder, due=when)
             if _is_ru(intent_obj):
@@ -2051,9 +2052,11 @@ class EditReminderIntent(ReminderIntent):
                 f"{day_phrase(when, now)}.{tail}",
             )
         except PastDue:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
         except InvalidRule:
-            return self._say(intent_obj, "Beg pardon, I can't repeat one that often.")
+            return self._say(intent_obj, _ru_message("repeat_invalid") if _is_ru(intent_obj)
+                             else "Beg pardon, I can't repeat one that often.")
 
 
 class NextReminderIntent(ReminderIntent):
