@@ -1,0 +1,387 @@
+# Russian Assist grammar for FGR. Copied to /config/custom_sentences/ru/reminders.yaml
+# Language-specific speech shapes only: no scheduler, calendar or English-code changes.
+# Broad fixed patterns deliberately avoid catching timer/light commands.
+language: ru
+intents:
+  CustomReminderSet:
+    data:
+      - sentences:
+          - "<fgr_start> {reminder_text} через {rel_num} {rel_unit}"
+          - "<fgr_start> через {rel_num} {rel_unit} {reminder_text}"
+          - "<fgr_start> {reminder_text} спустя {rel_num} {rel_unit}"
+          - "<fgr_start> {reminder_text} через {rel_num} {rel_unit} [пожалуйста]"
+          - "<fgr_start> {reminder_text} через {rel_num} {rel_unit} [вечером]"
+      - sentences:
+          - "<fgr_start> {reminder_text} через полчаса"
+          - "<fgr_start> через полчаса {reminder_text}"
+        slots:
+          rel_num: 30
+          rel_unit: "minutes"
+      - sentences:
+          - "<fgr_start> {reminder_text} через пол часа"
+          - "<fgr_start> через пол часа {reminder_text}"
+        slots:
+          rel_num: 30
+          rel_unit: "minutes"
+      - sentences:
+          - "<fgr_start> {reminder_text} через полтора часа"
+          - "<fgr_start> через полтора часа {reminder_text}"
+        slots:
+          rel_num: 90
+          rel_unit: "minutes"
+      - sentences:
+          - "<fgr_start> {reminder_text} через полторы минуты"
+          - "<fgr_start> через полторы минуты {reminder_text}"
+        slots:
+          rel_num: 90
+          rel_unit: "minutes"
+      - sentences:
+          - "<fgr_start> {reminder_text} через четверть часа"
+          - "<fgr_start> через четверть часа {reminder_text}"
+        slots:
+          rel_num: 15
+          rel_unit: "minutes"
+      - sentences:
+          - "<fgr_start> {reminder_text} через час"
+          - "<fgr_start> через час {reminder_text}"
+        slots:
+          rel_num: 60
+          rel_unit: "minutes"
+      - sentences:
+          - "<fgr_start> {reminder_text} в {hour} {ampm}"
+          - "<fgr_start> {reminder_text} в {hour} часов"
+          - "<fgr_start> в {hour} {ampm} {reminder_text}"
+          - "<fgr_start> в {hour} часов {reminder_text}"
+          - "<fgr_start> {reminder_text} в {hour} {ampm} {minute} минут"
+          - "<fgr_start> {reminder_text} в {hour} часов {minute} минут"
+          - "<fgr_start> {reminder_text} в {hour} {ampm} {minute}"
+          - "<fgr_start> {reminder_text} в {hour} {minute}"
+          - "<fgr_start> {reminder_text} в {hour}:{minute}"
+          - "<fgr_start> в {hour}:{minute} {reminder_text}"
+          - "<fgr_start> {reminder_text} в {hour} <fgr_daypart>"
+          - "<fgr_start> в {hour} <fgr_daypart> {reminder_text}"
+      - sentences:
+          - "<fgr_start> {reminder_text} сегодня в {hour} {ampm}"
+          - "<fgr_start> {reminder_text} сегодня в {hour} часов"
+          - "<fgr_start> сегодня в {hour} {ampm} {reminder_text}"
+          - "<fgr_start> сегодня в {hour} часов {reminder_text}"
+          - "<fgr_start> {reminder_text} сегодня в {hour}:{minute}"
+          - "<fgr_start> сегодня в {hour}:{minute} {reminder_text}"
+          - "<fgr_start> {reminder_text} сегодня <fgr_daypart>"
+          - "<fgr_start> сегодня <fgr_daypart> {reminder_text}"
+        slots:
+          day_offset: 0
+      - sentences:
+          - "<fgr_start> {reminder_text} завтра в {hour} {ampm}"
+          - "<fgr_start> {reminder_text} завтра в {hour} часов"
+          - "<fgr_start> завтра в {hour} {ampm} {reminder_text}"
+          - "<fgr_start> завтра в {hour} часов {reminder_text}"
+          - "<fgr_start> {reminder_text} завтра в {hour}:{minute}"
+          - "<fgr_start> завтра в {hour}:{minute} {reminder_text}"
+          - "<fgr_start> {reminder_text} завтра <fgr_daypart>"
+          - "<fgr_start> завтра <fgr_daypart> {reminder_text}"
+        slots:
+          day_offset: 1
+      - sentences:
+          - "<fgr_start> {reminder_text} послезавтра в {hour} {ampm}"
+          - "<fgr_start> {reminder_text} послезавтра в {hour} часов"
+          - "<fgr_start> послезавтра в {hour} {ampm} {reminder_text}"
+          - "<fgr_start> послезавтра в {hour} часов {reminder_text}"
+          - "<fgr_start> {reminder_text} послезавтра в {hour}:{minute}"
+          - "<fgr_start> послезавтра в {hour}:{minute} {reminder_text}"
+          - "<fgr_start> {reminder_text} послезавтра <fgr_daypart>"
+          - "<fgr_start> послезавтра <fgr_daypart> {reminder_text}"
+        slots:
+          day_offset: 2
+      - sentences:
+          - "<fgr_start> {reminder_text} в {weekday} в {hour} {ampm}"
+          - "<fgr_start> {reminder_text} в {weekday} в {hour} часов"
+          - "<fgr_start> в {weekday} в {hour} {ampm} {reminder_text}"
+          - "<fgr_start> в {weekday} {reminder_text}"
+          - "<fgr_start> {reminder_text} в {weekday}"
+  CustomReminderRecurring:
+    data:
+      - sentences:
+          - "<fgr_repeat> {reminder_text} каждый день [в {hour} {ampm}]"
+          - "<fgr_repeat> {reminder_text} ежедневно [в {hour} {ampm}]"
+          - "<fgr_repeat> каждый день [в {hour} {ampm}] {reminder_text}"
+          - "<fgr_repeat> ежедневно [в {hour} {ampm}] {reminder_text}"
+        slots:
+          recur: "daily"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} по будням [в {hour} {ampm}]"
+          - "<fgr_repeat> {reminder_text} каждый будний день [в {hour} {ampm}]"
+          - "<fgr_repeat> по будням [в {hour} {ampm}] {reminder_text}"
+        slots:
+          recur: "weekdays"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} по выходным [в {hour} {ampm}]"
+          - "<fgr_repeat> {reminder_text} каждые выходные [в {hour} {ampm}]"
+          - "<fgr_repeat> по выходным [в {hour} {ampm}] {reminder_text}"
+        slots:
+          recur: "weekends"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} каждый {weekday} [в {hour} {ampm}]"
+          - "<fgr_repeat> {reminder_text} по {weekday} [в {hour} {ampm}]"
+          - "<fgr_repeat> каждый {weekday} [в {hour} {ampm}] {reminder_text}"
+          - "<fgr_repeat> по {weekday} [в {hour} {ampm}] {reminder_text}"
+          - "<fgr_repeat> {reminder_text} еженедельно в {weekday} [в {hour} {ampm}]"
+        slots:
+          recur: "weekly"
+      - sentences:
+          - "<fgr_repeat> {reminder_text} каждого {monthday} числа [в {hour} {ampm}]"
+          - "<fgr_repeat> {reminder_text} {monthday} числа каждого месяца [в {hour} {ampm}]"
+          - "<fgr_repeat> {reminder_text} каждый месяц {monthday} числа [в {hour} {ampm}]"
+          - "<fgr_repeat> каждое {monthday} число [в {hour} {ampm}] {reminder_text}"
+        slots:
+          recur: "monthly"
+  CustomReminderCancel:
+    data:
+      - sentences:
+          - "(отмени|удали|убери|сотри) [мое|моё] [это] напоминание [о|про] {reminder_text}"
+          - "(отмени|удали|убери|сотри) напоминание {reminder_text}"
+          - "(отмени|удали|убери) [моё|мое] напоминание про {reminder_text}"
+          - "(больше не напоминай|не напоминай) [мне] [о|про] {reminder_text}"
+      - sentences:
+          - "(отмени|удали) (последнее|предыдущее) напоминание"
+          - "(отмени|удали) (это|текущее) напоминание"
+        slots:
+          use_last: 1
+  CustomReminderCancelAt:
+    data:
+      - sentences:
+          - "(отмени|удали) [моё|мое] напоминание в {hour} {ampm}"
+          - "(отмени|удали) [моё|мое] напоминание в {hour} часов"
+          - "(отмени|удали) [моё|мое] напоминание в {hour}:{minute}"
+      - sentences:
+          - "(отмени|удали) напоминание сегодня в {hour} {ampm}"
+          - "(отмени|удали) напоминание сегодня в {hour} часов"
+        slots:
+          day_offset: 0
+      - sentences:
+          - "(отмени|удали) напоминание завтра в {hour} {ampm}"
+          - "(отмени|удали) напоминание завтра в {hour} часов"
+        slots:
+          day_offset: 1
+      - sentences:
+          - "(отмени|удали) напоминание послезавтра в {hour} {ampm}"
+          - "(отмени|удали) напоминание послезавтра в {hour} часов"
+        slots:
+          day_offset: 2
+  CustomReminderSkip:
+    data:
+      - sentences:
+          - "(пропусти|пропустить|перенеси) следующее напоминание [о|про] {reminder_text}"
+          - "(пропусти|не выполняй) [одно] [следующее] напоминание [о|про] {reminder_text}"
+        slots:
+          scope: "next"
+      - sentences:
+          - "(пропусти|не напоминай) [мне] [о|про] {reminder_text} на этой неделе"
+          - "(пропусти|не выполняй) напоминание [о|про] {reminder_text} на этой неделе"
+        slots:
+          scope: "week"
+      - sentences:
+          - "пропусти (следующее|очередное) напоминание"
+          - "пропусти (следующий|очередной) раз"
+        slots:
+          scope: "next"
+          use_last: 1
+  CustomReminderList:
+    data:
+      - sentences:
+          - "(какие|каковы) [у меня] [есть] напоминания"
+          - "(покажи|назови|перечисли|озвучь|прочитай) [мои] [все] напоминания"
+          - "(расскажи|скажи) [мне] [про] [мои] напоминания"
+          - "что [у меня] [есть] в напоминаниях"
+  CustomReminderNext:
+    data:
+      - sentences:
+          - "(какое|что за) [у меня] следующее напоминание"
+          - "(когда|какое) [у меня] ближайшее напоминание"
+          - "(назови|скажи|покажи) [мое|моё] следующее напоминание"
+  CustomReminderCount:
+    data:
+      - sentences:
+          - "сколько [у меня] напоминаний"
+          - "(сколько|сколькими) напоминаниями я (располагаю|владею)"
+          - "сколько [всего] напоминаний [у меня] [запланировано]"
+  CustomReminderFind:
+    data:
+      - sentences:
+          - "(когда|во сколько) [будет] напоминание [о|про] {reminder_text}"
+          - "(найди|покажи|скажи) [мне] напоминание [о|про] {reminder_text}"
+          - "(какие|что за) напоминания [у меня] (сегодня|на сегодня)"
+      - sentences:
+          - "(какие|покажи|назови) [у меня] напоминания сегодня"
+          - "(что|какие напоминания) [мне] [нужно] [сделать] сегодня"
+        slots:
+          when_kind: "today"
+      - sentences:
+          - "(какие|покажи|назови) [у меня] напоминания завтра"
+          - "(что|какие напоминания) [мне] [нужно] [сделать] завтра"
+        slots:
+          when_kind: "tomorrow"
+      - sentences:
+          - "(какие|покажи|назови) [у меня] напоминания на этой неделе"
+          - "(что|какие напоминания) [мне] [нужно] [сделать] на этой неделе"
+        slots:
+          when_kind: "week"
+      - sentences:
+          - "(какие|покажи|назови) [у меня] напоминания на следующей неделе"
+          - "(что|какие напоминания) [мне] [нужно] [сделать] на следующей неделе"
+        slots:
+          when_kind: "nextweek"
+      - sentences:
+          - "(какие|покажи|назови) [у меня] напоминания в этом месяце"
+          - "(что|какие напоминания) [мне] [нужно] [сделать] в этом месяце"
+        slots:
+          when_kind: "month"
+      - sentences:
+          - "(какие|покажи|назови) [у меня] напоминания в следующем месяце"
+          - "(что|какие напоминания) [мне] [нужно] [сделать] в следующем месяце"
+        slots:
+          when_kind: "nextmonth"
+  CustomReminderEdit:
+    data:
+      - sentences:
+          - "(измени|отредактируй|исправь|поправь) [моё|мое] напоминание [о|про] {reminder_text}"
+          - "(измени|отредактируй|исправь) напоминание {reminder_text}"
+        slots:
+          edit_ask: "yes"
+      - sentences:
+          - "(перенеси|передвинь|переставь) напоминание [о|про] {reminder_text} на {hour} {ampm}"
+          - "(перенеси|передвинь|переставь) напоминание [о|про] {reminder_text} на {hour} часов"
+          - "(перенеси|передвинь|переставь) напоминание [о|про] {reminder_text} на {hour}:{minute}"
+      - sentences:
+          - "(убери|отмени|останови) повторение напоминания [о|про] {reminder_text}"
+          - "пусть напоминание [о|про] {reminder_text} больше не повторяется"
+        slots:
+          stop_repeating: "yes"
+  CustomReminderAgain:
+    data:
+      - sentences:
+          - "(напомни|напоминай) [мне] (еще|ещё) раз через {rel_num} {rel_unit}"
+          - "(повтори|повторить) [последнее] напоминание через {rel_num} {rel_unit}"
+          - "(напомни|напоминай) [мне] снова через {rel_num} {rel_unit}"
+  CustomReminderFallback:
+    data:
+      - sentences:
+          - "<fgr_start> {fallback_rest}"
+          - "<fgr_start>"
+expansion_rules:
+  fgr_start: "(напомни|напомните|пожалуйста напомни) [мне] [пожалуйста]"
+  fgr_repeat: "(напоминай|напоминайте|напомни|напомните) [мне] [пожалуйста]"
+  fgr_daypart: "(утром|днём|днем|вечером|ночью)"
+lists:
+  reminder_text:
+    wildcard: true
+  fallback_rest:
+    wildcard: true
+  rel_num:
+    range:
+      from: 1
+      to: 365
+  hour:
+    range:
+      from: 0
+      to: 23
+  minute:
+    range:
+      from: 0
+      to: 59
+  rel_unit:
+    values:
+      - in: "(секунду|секунды|секунд|сек)"
+        out: "seconds"
+      - in: "(минуту|минуты|минут|мин)"
+        out: "minutes"
+      - in: "(час|часа|часов)"
+        out: "hours"
+      - in: "(день|дня|дней|сутки|суток)"
+        out: "days"
+  ampm:
+    values:
+      - in: "(утра|утром|а м)"
+        out: "am"
+      - in: "(вечера|вечером|дня|днём|днем|ночи|ночью|п м)"
+        out: "pm"
+  weekday:
+    values:
+      - in: "(понедельник|понедельникам|понедельника)"
+        out: 0
+      - in: "(вторник|вторникам|вторника)"
+        out: 1
+      - in: "(среду|среда|средам|среды)"
+        out: 2
+      - in: "(четверг|четвергам|четверга)"
+        out: 3
+      - in: "(пятницу|пятница|пятницам|пятницы)"
+        out: 4
+      - in: "(субботу|суббота|субботам|субботы)"
+        out: 5
+      - in: "(воскресенье|воскресеньям|воскресенья)"
+        out: 6
+  monthday:
+    values:
+      - in: "(1|первого)"
+        out: 1
+      - in: "(2|второго)"
+        out: 2
+      - in: "(3|третьего)"
+        out: 3
+      - in: "(4|четвертого)"
+        out: 4
+      - in: "(5|пятого)"
+        out: 5
+      - in: "(6|шестого)"
+        out: 6
+      - in: "(7|седьмого)"
+        out: 7
+      - in: "(8|восьмого)"
+        out: 8
+      - in: "(9|девятого)"
+        out: 9
+      - in: "(10|десятого)"
+        out: 10
+      - in: "(11|одиннадцатого)"
+        out: 11
+      - in: "(12|двенадцатого)"
+        out: 12
+      - in: "(13|тринадцатого)"
+        out: 13
+      - in: "(14|четырнадцатого)"
+        out: 14
+      - in: "(15|пятнадцатого)"
+        out: 15
+      - in: "(16|шестнадцатого)"
+        out: 16
+      - in: "(17|семнадцатого)"
+        out: 17
+      - in: "(18|восемнадцатого)"
+        out: 18
+      - in: "(19|девятнадцатого)"
+        out: 19
+      - in: "(20|двадцатого)"
+        out: 20
+      - in: "(21|двадцать первого)"
+        out: 21
+      - in: "(22|двадцать второго)"
+        out: 22
+      - in: "(23|двадцать третьего)"
+        out: 23
+      - in: "(24|двадцать четвертого)"
+        out: 24
+      - in: "(25|двадцать пятого)"
+        out: 25
+      - in: "(26|двадцать шестого)"
+        out: 26
+      - in: "(27|двадцать седьмого)"
+        out: 27
+      - in: "(28|двадцать восьмого)"
+        out: 28
+      - in: "(29|двадцать девятого)"
+        out: 29
+      - in: "(30|тридцатого)"
+        out: 30
+      - in: "(31|тридцать первого)"
+        out: 31
