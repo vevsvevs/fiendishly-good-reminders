@@ -32,6 +32,37 @@ lists = {
 }
 
 CASES = [
+    # Time-first user utterance from the provided Assist log. It must never reach Codex.
+    ("Через четыре с половиной часа напомни покормить малыша", "CustomReminderSet",
+     {"reminder_text": "покормить малыша", "rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
+    ("Напомни через четыре с половиной часа покормить малыша", "CustomReminderSet",
+     {"reminder_text": "покормить малыша", "rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
+    ("через 4 часа напомни покормить малыша", "CustomReminderSet",
+     {"reminder_text": "покормить малыша", "rel_num": 4, "rel_unit": "hours"}),
+    ("спустя пять с половиной минут напомни выключить духовку", "CustomReminderSet",
+     {"reminder_text": "выключить духовку", "rel_num": 5, "rel_fraction": "half", "rel_unit": "minutes"}),
+    ("через четыре часа с половиной напомни купить молоко", "CustomReminderSet",
+     {"reminder_text": "купить молоко", "rel_num": 4, "rel_fraction": "half", "rel_unit": "hours"}),
+    ("через семь с четвертью часов напомни выпить воду", "CustomReminderSet",
+     {"reminder_text": "выпить воду", "rel_num": 7, "rel_fraction": "quarter", "rel_unit": "hours"}),
+    ("через полчаса напомни полить цветы", "CustomReminderSet",
+     {"reminder_text": "полить цветы", "rel_num": 30, "rel_unit": "minutes"}),
+    ("через пятнадцать минут напомни позвонить", "CustomReminderSet",
+     {"reminder_text": "позвонить", "rel_num": 15, "rel_unit": "minutes"}),
+    ("завтра в девять вечера напомни позвонить", "CustomReminderSet",
+     {"reminder_text": "позвонить", "day_offset": 1, "hour": 9, "ampm": "pm"}),
+    ("завтра в 21:30 напомни позвонить", "CustomReminderSet",
+     {"reminder_text": "позвонить", "day_offset": 1, "hour": 21, "minute": 30}),
+    ("послезавтра утром напомни записаться к врачу", "CustomReminderSet",
+     {"reminder_text": "записаться к врачу", "day_offset": 2, "daypart": "morning"}),
+    ("в понедельник напомни полить цветы", "CustomReminderSet",
+     {"reminder_text": "полить цветы", "weekday": 0}),
+    ("в пятницу вечером напомни проверить почту", "CustomReminderSet",
+     {"reminder_text": "проверить почту", "weekday": 4, "daypart": "evening"}),
+    ("каждый день напоминай пить воду", "CustomReminderRecurring",
+     {"reminder_text": "пить воду", "recur": "daily"}),
+    ("каждую пятницу напоминай выносить мусор", "CustomReminderRecurring",
+     {"reminder_text": "выносить мусор", "weekday": 4, "recur": "weekly"}),
     # Exact user utterance: 4.5 hours must resolve to a SET intent, not fallback.
     ("Напомни покормить малыша через четыре с половиной часа", "CustomReminderSet", {"reminder_text": "покормить малыша", "rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
     ("напомни через 4 с половиной часа покормить малыша", "CustomReminderSet", {"rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
@@ -76,9 +107,15 @@ CASES = [
     ("напомни еще раз через пять минут", "CustomReminderAgain", {"rel_num": 5}),
 ]
 # Must not be claimed by the reminder grammar:
-NEGATIVE = ("поставь таймер на двадцать минут",
-            "включи свет в гостиной",
-            "установи яркость 50 процентов")
+NEGATIVE = (
+    "поставь таймер на двадцать минут",
+    "через четыре с половиной часа включи свет в гостиной",
+    "завтра в девять включи свет в гостиной",
+    "каждый день включай свет в гостиной",
+    "через полчаса поставь таймер на десять минут",
+    "включи свет в гостиной",
+    "установи яркость 50 процентов",
+)
 
 failures = []
 for phrase, expected, slots in CASES:
