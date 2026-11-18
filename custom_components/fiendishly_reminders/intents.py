@@ -93,10 +93,19 @@ NO_SENTENCES = [
 ]
 
 
+def _intent_language(intent_obj=None, hass=None) -> str:
+    """Prefer the language of an Assist request over the Home Assistant UI locale."""
+    if intent_obj is not None:
+        value = getattr(intent_obj, "language", None)
+        if value:
+            return str(value).lower().replace("_", "-")
+    if hass is not None:
+        return str(getattr(getattr(hass, "config", None), "language", "en") or "en").lower()
+    return "en"
+
+
 def _is_ru(intent_obj) -> bool:
-    """A spoken request carries its own language; never infer it from the name."""
-    language = getattr(intent_obj, "language", "en") or "en"
-    return language.lower().startswith("ru")
+    return _intent_language(intent_obj).startswith("ru")
 
 
 def _ru_message(key: str, **values) -> str:
@@ -825,7 +834,7 @@ class ReminderIntent(intent.IntentHandler):
             if asked is not None:
                 return asked
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
         return self._say(intent_obj, self._answer(hass, manager, intent_obj))
 
     def _answer(self, hass: HomeAssistant, manager, intent_obj) -> str:
@@ -879,7 +888,7 @@ class ReminderIntent(intent.IntentHandler):
         )
         return self._say(intent_obj, "")
 
-    def _not_ready(self, hass: HomeAssistant) -> str:
+    def _not_ready(self, hass: HomeAssistant, intent_obj=None) -> str:
         """Why there is no one list to act on.
 
         Three reasons, and they need different answers: still booting (temporary),
@@ -887,15 +896,16 @@ class ReminderIntent(intent.IntentHandler):
         request said which - which is not a fault at all, just a missing word.
         """
         if len(_lists(hass)) > 1:
-            return self._which_list(hass)
-        locale = (getattr(getattr(hass, "config", None), "language", "en") or "en").lower()
+            return self._which_list(hass, intent_obj)
+        locale = _intent_language(intent_obj, hass)
         if not hass.is_running:
             return _ru_message("not_ready") if locale.startswith("ru") else "Hold on, I'm still wakin' up."
         return _ru_message("no_list") if locale.startswith("ru") else "Reminders ain't set up."
 
-    def _which_list(self, hass: HomeAssistant) -> str:
-        names = " or ".join(sorted(m.name for m in _lists(hass)))
-        locale = (getattr(getattr(hass, "config", None), "language", "en") or "en").lower()
+    def _which_list(self, hass: HomeAssistant, intent_obj=None) -> str:
+        locale = _intent_language(intent_obj, hass)
+        names = (" или " if locale.startswith("ru") else " or ").join(
+            sorted(m.name for m in _lists(hass)))
         if locale.startswith("ru"):
             return _ru_message("which_list", names=names)
         return f"Whose list do you mean - {names}? Say a name and I'll sort it."
@@ -962,7 +972,7 @@ class SetReminderIntent(ReminderIntent):
         hass = intent_obj.hass
         lists = _lists(hass)
         if not lists:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
         # Whose list this is may not be settled yet, and the times are per-list. Reading
         # them off the first list is only ever visible when the sentence named no time at
         # all AND two lists disagree about what the default hour is.
@@ -990,7 +1000,7 @@ class SetReminderIntent(ReminderIntent):
                 return asked
         target = routed or self._manager(hass)
         if target is None:
-            return self._say(intent_obj, self._which_list(hass))
+            return self._say(intent_obj, self._which_list(hass, intent_obj))
         try:
             target.schedule(text, when)
         except PastDue:
@@ -1015,7 +1025,7 @@ class RecurringReminderIntent(ReminderIntent):
         hass = intent_obj.hass
         lists = _lists(hass)
         if not lists:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
         # See SetReminderIntent: the times are read before whose list is known.
         manager = self._manager(hass) or lists[0]
 
@@ -1047,7 +1057,7 @@ class RecurringReminderIntent(ReminderIntent):
                 return asked
         manager = routed or self._manager(hass)
         if manager is None:
-            return self._say(intent_obj, self._which_list(hass))
+            return self._say(intent_obj, self._which_list(hass, intent_obj))
         try:
             reminder = manager.schedule(text, when, rrule)
         except PastDue:
@@ -1084,7 +1094,7 @@ class RemindAgainIntent(ReminderIntent):
         if refusal:
             return self._say(intent_obj, refusal)
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
         last = (manager.store.last_text or "").strip()
         if not last:
@@ -1094,9 +1104,11 @@ class RemindAgainIntent(ReminderIntent):
         now = dt_util.now()
         when = when_from_slots(now, intent_obj.slots, self._default_time(manager))
         if when is None:
-            return self._say(intent_obj, "Beg pardon, I couldn't work out when.")
+            return self._say(intent_obj, _ru_message("no_time") if _is_ru(intent_obj)
+                             else "Beg pardon, I couldn't work out when.")
         if when <= now:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
 
         try:
             manager.schedule(last, when)
@@ -1144,7 +1156,7 @@ class SkipReminderIntent(ReminderIntent):
         if refusal:
             return self._say(intent_obj, refusal)
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
         slots = intent_obj.slots
         if _slot(slots, "use_last") is not None:
@@ -1380,8 +1392,10 @@ async def _settle_whose(hass, satellite: str, managers: list, first: str,
     quoted back, and after ASK_REPEATS the CALLER decides what giving up costs - which
     is not the same for a reminder being made and a question being answered.
     """
-    names = " or ".join(m.name for m in managers)
-    question = f"{first} {names}?"
+    names = (" или " if language.startswith("ru") else " or ").join(
+        m.name for m in managers)
+    question = (f"{first.rstrip(' ?')} — {names}?" if language.startswith("ru")
+                else f"{first} {names}?")
     for _ in range(ASK_REPEATS):
         chosen, heard = await _ask_whose_once(
             hass, satellite, managers, question, language)
@@ -1474,7 +1488,8 @@ async def _ask_whose_then_schedule(hass, satellite: str, managers: list,
         if chosen is None:
             await _announce(
                 hass, satellite,
-                "I still don't know whose that is, so I've not set it.",
+                _ru_message("ask_whose_failed") if language.startswith("ru")
+                else "I still don't know whose that is, so I've not set it.",
             )
             return
         manager = chosen
@@ -1735,7 +1750,7 @@ class CancelReminderIntent(ReminderIntent):
         if refusal:
             return self._say(intent_obj, refusal)
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
         # Whether a guess is allowed depends on whether it will be read back. A
         # confirmation names the match and waits for a yes, so a near-miss there is
@@ -1923,7 +1938,7 @@ class EditReminderIntent(ReminderIntent):
         if refusal:
             return self._say(intent_obj, refusal)
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
         slots = intent_obj.slots
         needle = _text(slots, "reminder_text")
@@ -2118,7 +2133,7 @@ class ReminderFallbackIntent(ReminderIntent):
                 )
                 return self._say(intent_obj, "")
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
         question = (_ru_message(
             "ask_when", time="%02d:%02d" % tuple(self._default_time(manager)))
