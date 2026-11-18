@@ -248,12 +248,15 @@ def when_from_slots(now: datetime, slots: dict,
     if _int(slots, "hour") is None and not _slot(slots, "daypart"):
         return None
     h24, minute = _resolve_time(slots, default_time)
+    explicit_day = _slot(slots, "day_offset") is not None
     offset = _int(slots, "day_offset", 0)
     when = (now + timedelta(days=offset)).replace(
         hour=h24, minute=minute, second=0, microsecond=0
     )
-    # A bare clock time that has passed means tomorrow. An explicit day does not roll.
-    return when if (offset > 0 or when > now) else when + timedelta(days=1)
+    # A bare clock time that has passed means tomorrow; "today at 8"
+    # must NOT silently become tomorrow when 8 has already passed.
+    # Its caller reports an explicit past time as invalid.
+    return when if (explicit_day or when > now) else when + timedelta(days=1)
 
 
 def when_at_slots(now: datetime, slots: dict) -> datetime | None:
