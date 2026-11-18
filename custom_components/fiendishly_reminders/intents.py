@@ -1140,14 +1140,16 @@ class SkipReminderIntent(ReminderIntent):
         else:
             needle = _text(slots, "reminder_text")
         if not needle:
-            return self._say(intent_obj, "Beg pardon, I don't have a reminder to skip.")
+            return self._say(intent_obj, _ru_message("skip_missing") if _is_ru(intent_obj)
+                             else "Beg pardon, I don't have a reminder to skip.")
 
         scope = _text(slots, "scope", "next") or "next"
         now = dt_util.now()
 
         matches = manager.store.find(needle)
         if not matches:
-            return self._say(intent_obj, "Beg pardon, I couldn't find a reminder like that.")
+            return self._say(intent_obj, _ru_message("skip_missing") if _is_ru(intent_obj)
+                             else "Beg pardon, I couldn't find a reminder like that.")
 
         # Skipping a one-off, or the last of a series, removes it. That is a cancellation
         # however it was phrased, so it goes through the same question.
@@ -1166,24 +1168,29 @@ class SkipReminderIntent(ReminderIntent):
                 else:
                     question = (f"That'd finish off {len(emptied)} of 'em, startin' with "
                                 f"{first}. Are you sure?")
+                if _is_ru(intent_obj):
+                    question = _ru_message("skip_confirm", text=emptied[0].text)
                 # One-offs have nothing to skip, so for those the yes must CANCEL.
                 as_skip = None if len(matches) == len(one_offs) else (needle, scope)
                 hass.async_create_background_task(
                     _confirm_then_cancel(hass, manager, satellite, matches, question,
-                                         skip=as_skip),
+                                         skip=as_skip,
+                                         language=getattr(intent_obj, "language", "en") or "en"),
                     name="reminders_confirm_skip",
                 )
                 return self._say(intent_obj, "")
             if len(matches) == len(one_offs):
                 # Nothing to skip on a one-off; the request means cancel.
                 count = manager.cancel_reminders(matches)
-                return self._say(intent_obj, _canceled_speech(count))
+                return self._say(intent_obj, _canceled_speech(
+                    count, getattr(intent_obj, "language", "en") or "en"))
 
         result = manager.skip(needle, scope)
 
         # No confirmation, unlike canceling: this drops one occurrence and leaves the
         # series running, and the reply names what it dropped, so it announces itself.
-        return self._say(intent_obj, _skip_speech(result, scope, now))
+        return self._say(intent_obj, _skip_speech(
+            result, scope, now, getattr(intent_obj, "language", "en") or "en"))
 
 
 # ---------------------------------------------------------------- cancel
@@ -1494,7 +1501,8 @@ async def _ask_then_edit(hass, manager, satellite: str, reminder_id: str,
 
 
 async def _confirm_then_cancel(hass, manager, satellite: str, matches, question: str,
-                               skip: tuple[str, str] | None = None) -> None:
+                               skip: tuple[str, str] | None = None,
+                               language: str = "en") -> None:
     """Ask on the satellite, and cancel only on yes.
 
     Runs detached from the turn that started it, because ask_question opens a new
@@ -1506,6 +1514,11 @@ async def _confirm_then_cancel(hass, manager, satellite: str, matches, question:
         await asyncio.sleep(ASK_SETTLE)
         confirmed = False
         try:
+            if language.startswith("ru"):
+                from .voice_ru import YES_SENTENCES as positive
+                from .voice_ru import NO_SENTENCES as negative
+            else:
+                positive, negative = YES_SENTENCES, NO_SENTENCES
             answer = await hass.services.async_call(
                 "assist_satellite",
                 "ask_question",
@@ -1513,8 +1526,8 @@ async def _confirm_then_cancel(hass, manager, satellite: str, matches, question:
                     "entity_id": satellite,
                     "question": question,
                     "answers": [
-                        {"id": "yes", "sentences": YES_SENTENCES},
-                        {"id": "no", "sentences": NO_SENTENCES},
+                        {"id": "yes", "sentences": positive},
+                        {"id": "no", "sentences": negative},
                     ],
                 },
                 blocking=True,
@@ -1530,7 +1543,9 @@ async def _confirm_then_cancel(hass, manager, satellite: str, matches, question:
             _LOGGER.info("reminders: not confirmed (%s), nothing canceled", err)
 
         if not confirmed:
-            await _announce(hass, satellite, "Alright, not canceled.")
+            await _announce(hass, satellite,
+                            _ru_message("not_canceled") if language.startswith("ru")
+                            else "Alright, not canceled.")
             return
 
         if skip is not None:
@@ -1539,14 +1554,15 @@ async def _confirm_then_cancel(hass, manager, satellite: str, matches, question:
             # them, and only the exhausted ones go.
             needle, scope = skip
             result = manager.skip(needle, scope)
-            await _announce(hass, satellite, _skip_speech(result, scope, dt_util.now()))
+            await _announce(hass, satellite, _skip_speech(
+                result, scope, dt_util.now(), language))
             return
 
         # Re-read by id: the question took a few seconds, in which a reminder could
         # have fired and advanced or gone.
         live = [r for r in matches if r.id in manager.store.reminders]
         count = manager.cancel_reminders(live)
-        await _announce(hass, satellite, _canceled_speech(count))
+        await _announce(hass, satellite, _canceled_speech(count, language))
     except Exception:  # noqa: BLE001 - a detached task must not die silently
         # Fails CLOSED: anything unexpected leaves every reminder in place.
         _LOGGER.exception("reminders: confirmation failed, nothing canceled")
@@ -1561,8 +1577,20 @@ async def _announce(hass, satellite: str, message: str) -> None:
     )
 
 
-def _skip_speech(result: dict, scope: str, now: datetime) -> str:
+def _skip_speech(result: dict, scope: str, now: datetime, language: str = "en") -> str:
     """What a skip says afterwards. A function so the detached confirmation can say it too."""
+    if language.startswith("ru"):
+        if result["success"] == RESULT_OK:
+            if result.get("ended"):
+                return _ru_message("skip_end")
+            if scope == "week":
+                return _ru_message("skip_week", count=result.get("number", 0))
+            return _ru_message("skip_success")
+        if result["success"] == RESULT_NONE_LEFT:
+            return _ru_message("skip_none_left")
+        if result["success"] == RESULT_NOT_RECURRING:
+            return _ru_message("skip_not_recurring")
+        return _ru_message("skip_missing")
     if result["success"] == RESULT_OK:
         # "the rest of 'em stay put" is a lie when there was no rest - skipping the last
         # occurrence exhausts the rule and the reminder is gone.
@@ -1592,7 +1620,11 @@ def _skip_speech(result: dict, scope: str, now: datetime) -> str:
     return "Beg pardon, I couldn't find a repeatin' reminder like that."
 
 
-def _canceled_speech(count: int) -> str:
+def _canceled_speech(count: int, language: str = "en") -> str:
+    if language.startswith("ru"):
+        return _ru_message("cancel_none" if count == 0 else
+                           "cancel_one" if count == 1 else "cancel_many",
+                           **({"count": count} if count > 1 else {}))
     if count == 0:
         return "Beg pardon, I couldn't find that one after all."
     if count == 1:
@@ -1649,16 +1681,25 @@ class CancelReminderIntent(ReminderIntent):
         satellite = self._satellite(hass, manager, intent_obj)
         matches = self._matches(manager, intent_obj, loose=satellite is not None and will_confirm)
         if not matches:
-            return self._say(intent_obj, self.not_found)
+            return self._say(intent_obj, _ru_message("not_found") if _is_ru(intent_obj)
+                             else self.not_found)
 
         now = dt_util.now()
         if satellite is None or not will_confirm:
             # Typed Assist, or a speaker that cannot hold a conversation. There is
             # nowhere to put a question, so cancel and answer in text.
-            return self._say(intent_obj, _canceled_speech(manager.cancel_reminders(matches)))
+            return self._say(intent_obj, _canceled_speech(
+                manager.cancel_reminders(matches),
+                getattr(intent_obj, "language", "en") or "en"))
 
+        question = ( _ru_message("confirm_cancel", text=matches[0].text)
+                     if _is_ru(intent_obj) and len(matches) == 1
+                     else (f"Отменить {len(matches)} напоминаний? Подтверждаете?"
+                           if _is_ru(intent_obj) else self._question(matches, now)) )
         hass.async_create_background_task(
-            _confirm_then_cancel(hass, manager, satellite, matches, self._question(matches, now)),
+            _confirm_then_cancel(
+                hass, manager, satellite, matches, question,
+                language=getattr(intent_obj, "language", "en") or "en"),
             name="reminders_confirm_cancel",
         )
         # Silence: the detached task above owns everything the user will hear.
