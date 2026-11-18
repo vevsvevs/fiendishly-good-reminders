@@ -496,7 +496,8 @@ def _ampm(raw: str | None) -> str:
     return "pm" if raw.lower().replace(".", "").replace(" ", "").startswith("p") else "am"
 
 
-def _read_time(phrase: str, now: datetime, default_time: tuple[int, int]):
+def _read_time(phrase: str, now: datetime, default_time: tuple[int, int],
+               language: str = "en"):
     """Pull a time expression out of a phrase.
 
     Returns (lead text, due, rrule). Every piece is optional and order does not matter,
@@ -504,6 +505,9 @@ def _read_time(phrase: str, now: datetime, default_time: tuple[int, int]):
     grammar produces and go to the SAME arithmetic - two implementations of "every
     Thursday at 7" would not stay in step.
     """
+    if language.startswith("ru"):
+        from .voice_ru import read_time as read_russian_time
+        return read_russian_time(phrase, now, default_time)
     rest, bound = split_trailing_bound(phrase, now)
     slots: dict = {}
     first = len(rest)
@@ -580,7 +584,8 @@ def _read_time(phrase: str, now: datetime, default_time: tuple[int, int]):
 
 
 def parse_edit_answer(
-    sentence: str, now: datetime, default_time: tuple[int, int]
+    sentence: str, now: datetime, default_time: tuple[int, int],
+    language: str = "en",
 ) -> tuple[str | None, datetime | None, str | None]:
     """Read the spoken answer into (new text, new due, new rrule). None means unchanged.
 
@@ -589,6 +594,9 @@ def parse_edit_answer(
     whether it contains a time at all, which is right most of the time and cannot be
     right always - "Watch Lanterns at 9 pm" is a perfectly good NAME.
     """
+    if language.startswith("ru"):
+        from .voice_ru import parse_edit_answer as parse_russian_edit
+        return parse_russian_edit(sentence, now, default_time)
     said = (sentence or "").strip().rstrip(".!?").strip()
     if not said:
         return None, None, None
@@ -1227,7 +1235,8 @@ async def _ask_free(hass, satellite: str, question: str) -> str | None:
 
 
 async def _ask_when_then_schedule(hass, manager, satellite: str, text: str,
-                                  question: str, default_time, whose: str) -> None:
+                                  question: str, default_time, whose: str,
+                                  language: str = "en") -> None:
     """Ask when a reminder should happen, then create it.
 
     This is what makes a reminder sayable in two breaths: name the task, then answer the
@@ -1251,9 +1260,13 @@ async def _ask_when_then_schedule(hass, manager, satellite: str, text: str,
             )
             if said is None:
                 continue                    # silence is not an answer - ask again
-            if _RE_DEFAULT_ANSWER.match(said):
+            if _RE_DEFAULT_ANSWER.match(said) or (
+                language.startswith("ru") and re.fullmatch(
+                    r"\s*(?:(?:как|по)\s+)?умолчанию\s*", said.casefold().replace("ё", "е")
+                )
+            ):
                 break                       # "default" IS an answer, and it ends it
-            _, due, rrule = _read_time(said, now, default_time)
+            _, due, rrule = _read_time(said, now, default_time, language)
             if due is not None:
                 break
             _LOGGER.info("reminders: %r named no time", said)
@@ -1300,7 +1313,7 @@ async def _settle_whose(hass, satellite: str, managers: list, first: str):
 
 
 async def _ask_whose_then_when(hass, handler, satellite: str, managers: list,
-                               text: str) -> None:
+                               text: str, language: str = "en") -> None:
     """Whose list, then when - a reminder that gave neither needs both asked.
 
     The two questions used to be mutually exclusive: a timeless reminder on a speaker two
@@ -1327,6 +1340,7 @@ async def _ask_whose_then_when(hass, handler, satellite: str, managers: list,
          f"Default is {handler._default_time_phrase(manager)}."),
         handler._default_time(manager),
         handler._whose(hass, manager) or "you",
+        language,
     )
 
 
@@ -1382,7 +1396,7 @@ async def _ask_whose_then_schedule(hass, satellite: str, managers: list,
 
 
 async def _ask_then_edit(hass, manager, satellite: str, reminder_id: str,
-                         default_time: tuple[int, int]) -> None:
+                         default_time: tuple[int, int], language: str = "en") -> None:
     """Ask what the reminder should become, then apply it.
 
     Detached for the same reason the cancel confirmation is: ask_question opens a new
@@ -1414,7 +1428,7 @@ async def _ask_then_edit(hass, manager, satellite: str, reminder_id: str,
             return
 
         now = dt_util.now()
-        text, due, rrule = parse_edit_answer(said, now, default_time)
+        text, due, rrule = parse_edit_answer(said, now, default_time, language)
         if text is None and due is None and rrule is None:
             await _announce(hass, satellite, "Beg pardon, I didn't catch that. Nothin' changed.")
             return
@@ -1796,7 +1810,8 @@ class EditReminderIntent(ReminderIntent):
                     f"{reminder.text} reminder to 6 pm'.",
                 )
             hass.async_create_background_task(
-                _ask_then_edit(hass, manager, satellite, reminder.id, keep),
+                _ask_then_edit(hass, manager, satellite, reminder.id, keep,
+                               getattr(intent_obj, "language", "en") or "en"),
                 name="reminders_ask_edit",
             )
             return self._say(intent_obj, "")
@@ -1903,7 +1918,10 @@ class ReminderFallbackIntent(ReminderIntent):
             satellite = self._any_satellite(hass, _lists(hass), intent_obj)
             if satellite is not None:
                 hass.async_create_background_task(
-                    _ask_whose_then_when(hass, self, satellite, _lists(hass), text),
+                    _ask_whose_then_when(
+                        hass, self, satellite, _lists(hass), text,
+                        getattr(intent_obj, "language", "en") or "en",
+                    ),
                     name="reminders_ask_whose_when",
                 )
                 return self._say(intent_obj, "")
@@ -1921,6 +1939,7 @@ class ReminderFallbackIntent(ReminderIntent):
             _ask_when_then_schedule(
                 hass, manager, satellite, text, question,
                 self._default_time(manager), self._whose(hass, manager) or "you",
+                getattr(intent_obj, "language", "en") or "en",
             ),
             name="reminders_ask_when",
         )
