@@ -850,7 +850,9 @@ class ReminderIntent(intent.IntentHandler):
         if satellite is None or len(managers) < 2:
             return None
         hass.async_create_background_task(
-            _ask_whose_then_answer(hass, satellite, managers, answer),
+            _ask_whose_then_answer(
+                hass, satellite, managers, answer,
+                getattr(intent_obj, "language", "en") or "en"),
             name="reminders_ask_whose_read",
         )
         return self._say(intent_obj, "")
@@ -866,7 +868,9 @@ class ReminderIntent(intent.IntentHandler):
         if satellite is None or len(managers) < 2:
             return None
         hass.async_create_background_task(
-            _ask_whose_then_schedule(hass, satellite, managers, text, due, rrule),
+            _ask_whose_then_schedule(
+                hass, satellite, managers, text, due, rrule,
+                getattr(intent_obj, "language", "en") or "en"),
             name="reminders_ask_whose",
         )
         return self._say(intent_obj, "")
@@ -1196,19 +1200,22 @@ class SkipReminderIntent(ReminderIntent):
 # ---------------------------------------------------------------- cancel
 
 
-def _reask(names: str, heard: str | None) -> str:
+def _reask(names: str, heard: str | None, language: str = "en") -> str:
     """The next ask, saying why there is one.
 
     Quoting the transcript is the difference between a person fixing the problem and a
     person repeating themselves into a speaker that will never agree - "I heard james"
     tells you instantly that the name never arrived, which asking again never does.
     """
+    if language.startswith("ru"):
+        return _ru_message("ask_whose_retry", names=names)
     if not heard:
         return f"I didn't get that. Was it {names}?"
     return f"I heard {heard.strip().rstrip('.!?')}. Was it {names}?"
 
 
-async def _ask_whose_once(hass, satellite: str, managers: list, question: str):
+async def _ask_whose_once(hass, satellite: str, managers: list, question: str,
+                          language: str = "en"):
     """Ask once and return the list meant, or None if it was not answered.
 
     Returns (the list, what was heard). The transcript comes back either way, because the
@@ -1224,10 +1231,14 @@ async def _ask_whose_once(hass, satellite: str, managers: list, question: str):
                  {"id": m.entry.entry_id,
                   # Every shape a one-word answer arrives in. A bare name is the common
                   # one; the rest are what people actually say when prompted with two.
-                  "sentences": [m.name, f"{m.name}'s", f"for {m.name}",
-                                f"it's for {m.name}", f"it's {m.name}",
-                                f"that's {m.name}", f"{m.name} please",
-                                f"{m.name}'s list", f"put it on {m.name}'s list"]}
+                  "sentences": (
+                      [m.name, f"для {m.name}", f"это {m.name}", f"{m.name} пожалуйста"]
+                      if language.startswith("ru")
+                      else [m.name, f"{m.name}'s", f"for {m.name}",
+                            f"it's for {m.name}", f"it's {m.name}",
+                            f"that's {m.name}", f"{m.name} please",
+                            f"{m.name}'s list", f"put it on {m.name}'s list"]
+                  )}
                  for m in managers
              ]},
             blocking=True, return_response=True,
@@ -1352,7 +1363,8 @@ async def _ask_when_then_schedule(hass, manager, satellite: str, text: str,
         _LOGGER.exception("reminders: could not place the reminder after asking when")
 
 
-async def _settle_whose(hass, satellite: str, managers: list, first: str):
+async def _settle_whose(hass, satellite: str, managers: list, first: str,
+                        language: str = "en"):
     """Ask whose list until it is answered. None means it never was.
 
     Every question that has to know whose shares this: the opening words differ, the
@@ -1363,10 +1375,11 @@ async def _settle_whose(hass, satellite: str, managers: list, first: str):
     names = " or ".join(m.name for m in managers)
     question = f"{first} {names}?"
     for _ in range(ASK_REPEATS):
-        chosen, heard = await _ask_whose_once(hass, satellite, managers, question)
+        chosen, heard = await _ask_whose_once(
+            hass, satellite, managers, question, language)
         if chosen is not None:
             return chosen
-        question = _reask(names, heard)
+        question = _reask(names, heard, language)
     _LOGGER.info("reminders: whose list went unanswered %d times", ASK_REPEATS)
     return None
 
@@ -1403,7 +1416,8 @@ async def _ask_whose_then_when(hass, handler, satellite: str, managers: list,
     )
 
 
-async def _ask_whose_then_answer(hass, satellite: str, managers: list, answer) -> None:
+async def _ask_whose_then_answer(hass, satellite: str, managers: list, answer,
+                                 language: str = "en") -> None:
     """Ask whose reminders a question is about, then speak the answer for that list.
 
     Same shape as the scheduling question and the same no-deadline repeat, but nothing
@@ -1413,9 +1427,14 @@ async def _ask_whose_then_answer(hass, satellite: str, managers: list, answer) -
     """
     try:
         await asyncio.sleep(ASK_SETTLE)
-        chosen = await _settle_whose(hass, satellite, managers, "Whose reminders?")
+        chosen = await _settle_whose(
+            hass, satellite, managers,
+            _ru_message("ask_whose_read") if language.startswith("ru") else "Whose reminders?",
+            language)
         if chosen is None:
-            await _announce(hass, satellite, "I still don't know whose you mean.")
+            await _announce(hass, satellite,
+                            _ru_message("ask_whose_read_failed") if language.startswith("ru")
+                            else "I still don't know whose you mean.")
             return
         await _announce(hass, satellite, answer(chosen))
     except Exception:  # noqa: BLE001
@@ -1423,7 +1442,8 @@ async def _ask_whose_then_answer(hass, satellite: str, managers: list, answer) -
 
 
 async def _ask_whose_then_schedule(hass, satellite: str, managers: list,
-                                   text: str, due: datetime, rrule: str | None) -> None:
+                                   text: str, due: datetime, rrule: str | None,
+                                   language: str = "en") -> None:
     """Ask whose list this is, then create it. Detached, like every other question.
 
     The question is asked until it is answered - there is no deadline on it anywhere,
@@ -1434,8 +1454,10 @@ async def _ask_whose_then_schedule(hass, satellite: str, managers: list,
     """
     try:
         await asyncio.sleep(ASK_SETTLE)
-        chosen = await _settle_whose(hass, satellite, managers,
-                                     "Who's this reminder for?")
+        chosen = await _settle_whose(
+            hass, satellite, managers,
+            _ru_message("ask_whose") if language.startswith("ru")
+            else "Who's this reminder for?", language)
         if chosen is None:
             await _announce(
                 hass, satellite,
@@ -1444,6 +1466,11 @@ async def _ask_whose_then_schedule(hass, satellite: str, managers: list,
             return
         manager = chosen
         reminder = manager.schedule(text, due, rrule)
+        if language.startswith("ru"):
+            await _announce(hass, satellite, _ru_message(
+                "ask_whose_created", text=reminder.text,
+                name=manager.name, when=_ru_moment(reminder.due)))
+            return
         now = dt_util.now()
         every = f" {reminder.every_base}" if reminder.recurring else ""
         when = clock(reminder.due)
