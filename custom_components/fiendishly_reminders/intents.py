@@ -1920,11 +1920,16 @@ class EditReminderIntent(ReminderIntent):
         slots = intent_obj.slots
         needle = _text(slots, "reminder_text")
         if not needle:
-            return self._say(intent_obj, "Beg pardon, which reminder?")
+            return self._say(intent_obj, _ru_message("edit_which") if _is_ru(intent_obj)
+                             else "Beg pardon, which reminder?")
         matches = manager.store.find(needle)
         if not matches:
-            return self._say(intent_obj, "Beg pardon, I don't have a reminder about that.")
+            return self._say(intent_obj, _ru_message("edit_not_found") if _is_ru(intent_obj)
+                             else "Beg pardon, I don't have a reminder about that.")
         if len(matches) > 1:
+            if _is_ru(intent_obj):
+                return self._say(intent_obj, _ru_message(
+                    "edit_ambiguous", count=len(matches)))
             # Editing the wrong one is quietly wrong, and nothing reads it back the way
             # canceling does. Ask rather than guess.
             return self._say(
@@ -1953,6 +1958,10 @@ class EditReminderIntent(ReminderIntent):
                 # The example names the list when there is more than one: "move MY ...
                 # reminder" is exactly the phrasing that would come back asking whose,
                 # and a worked example has to be one that works.
+                if _is_ru(intent_obj):
+                    return self._say(intent_obj, _ru_message(
+                        "edit_one_turn", text=reminder.text,
+                        when=_ru_moment(reminder.due)))
                 name = self._whose(hass, manager)
                 whose = f"{name}'s" if name else "my"
                 return self._say(
@@ -1973,8 +1982,14 @@ class EditReminderIntent(ReminderIntent):
         try:
             if _slot(slots, "stop_repeating") is not None:
                 if not reminder.recurring:
-                    return self._say(intent_obj, f"{reminder.text} doesn't repeat anyway.")
+                    return self._say(intent_obj, _ru_message(
+                        "edit_not_recurring", text=reminder.text) if _is_ru(intent_obj)
+                        else f"{reminder.text} doesn't repeat anyway.")
                 manager.edit(reminder, rrule="")
+                if _is_ru(intent_obj):
+                    return self._say(intent_obj, _ru_message(
+                        "edit_stop_repeat", text=reminder.text,
+                        when=_ru_moment(reminder.due)))
                 return self._say(
                     intent_obj,
                     f"Alright, {reminder.text} won't repeat. It's still set for "
@@ -1984,9 +1999,13 @@ class EditReminderIntent(ReminderIntent):
             if _slot(slots, "recur") is not None or _slot(slots, "recur_kind") is not None:
                 found = recurrence_from_slots(now, slots, "", keep)
                 if found is None:
-                    return self._say(intent_obj, "Beg pardon, I couldn't work out the new pattern.")
+                    return self._say(intent_obj, _ru_message("edit_bad_repeat") if _is_ru(intent_obj)
+                                     else "Beg pardon, I couldn't work out the new pattern.")
                 when, rrule, every = found
                 manager.edit(reminder, due=when, rrule=rrule)
+                if _is_ru(intent_obj):
+                    return self._say(intent_obj, _ru_message(
+                        "edit_recurring", text=reminder.text, when=_ru_moment(when)))
                 return self._say(
                     intent_obj,
                     f"Alright, {reminder.text} now repeats {every} at {clock(when)}, "
@@ -1998,6 +2017,10 @@ class EditReminderIntent(ReminderIntent):
                 return self._say(intent_obj, "Beg pardon, I couldn't work out when.")
             was_recurring = reminder.recurring
             manager.edit(reminder, due=when)
+            if _is_ru(intent_obj):
+                return self._say(intent_obj, _ru_message(
+                    "edit_moved_series" if was_recurring else "edit_moved",
+                    text=reminder.text, when=_ru_moment(when)))
             tail = " Every one of 'em moves." if was_recurring else ""
             return self._say(
                 intent_obj,
