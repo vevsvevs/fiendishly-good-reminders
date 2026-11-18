@@ -32,6 +32,16 @@ lists = {
 }
 
 CASES = [
+    # Exact user utterance: 4.5 hours must resolve to a SET intent, not fallback.
+    ("Напомни покормить малыша через четыре с половиной часа", "CustomReminderSet", {"rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
+    ("напомни через 4 с половиной часа покормить малыша", "CustomReminderSet", {"rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
+    ("напомни проверить почту через восемь с половиной часов", "CustomReminderSet", {"rel_num": 8, "rel_unit": "hours", "rel_fraction": "half"}),
+    ("напомни купить хлеб через два с половиной дня", "CustomReminderSet", {"rel_num": 2, "rel_unit": "days", "rel_fraction": "half"}),
+    ("напомни выпить воду через пять с половиной минут", "CustomReminderSet", {"rel_num": 5, "rel_unit": "minutes", "rel_fraction": "half"}),
+    ("напомни через 17 минут с половиной проверить чайник", "CustomReminderSet", {"rel_num": 17, "rel_unit": "minutes", "rel_fraction": "half"}),
+    ("напомни позвонить спустя два с четвертью часа", "CustomReminderSet", {"rel_num": 2, "rel_unit": "hours", "rel_fraction": "quarter"}),
+    ("напомни проверить плиту через три с тремя четвертями часа", "CustomReminderSet", {"rel_num": 3, "rel_unit": "hours", "rel_fraction": "three_quarters"}),
+    ("напомни еще раз через четыре с половиной часа", "CustomReminderAgain", {"rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
     ("напомни завтра в 9 купить хлеб", "CustomReminderSet", {"day_offset": 1, "hour": 9}),
     ("напомни проверить плиту через пару минут", "CustomReminderSet", {"rel_num": 2, "rel_unit": "minutes"}),
     ("напомни купить воду через часик", "CustomReminderSet", {"rel_num": 1, "rel_unit": "hours"}),
