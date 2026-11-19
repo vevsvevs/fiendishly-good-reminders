@@ -2261,6 +2261,29 @@ class ReminderFallbackIntent(ReminderIntent):
         if manager is None:
             return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
+        # Hassil may prefer the broad fallback when the user puts an owner
+        # after a relative time ("напомни о X через два часа для Марии").
+        # The owner's suffix was removed before routing. Interpret only a
+        # valid Russian time and non-empty task; never default a missing time.
+        if _is_ru(intent_obj):
+            now = dt_util.now()
+            title, due, rrule = _read_time(
+                text, now, self._default_time(manager), "ru")
+            if title and due:
+                if due <= now:
+                    return self._say(intent_obj, _ru_message("past_time"))
+                try:
+                    reminder = manager.schedule(
+                        title, due, rrule,
+                        language=_intent_language(intent_obj, hass))
+                except PastDue:
+                    return self._say(intent_obj, _ru_message("past_time"))
+                except InvalidRule:
+                    return self._say(intent_obj, _ru_message("repeat_invalid"))
+                return self._say(intent_obj, _ru_message(
+                    "recurring_created" if rrule else "created",
+                    text=reminder.text, when=_ru_moment(reminder.due)))
+
         question = (_ru_message(
             "ask_when", time="%02d:%02d" % tuple(self._default_time(manager)))
             if _is_ru(intent_obj) else
