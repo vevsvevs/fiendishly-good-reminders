@@ -740,6 +740,33 @@ class ReminderIntent(intent.IntentHandler):
 
         return sole_manager(hass)
 
+    def _normalize_person_slots(self, hass: HomeAssistant, intent_obj) -> None:
+        """Recover Russian owner if Hassil swallowed it into a wildcard.
+
+        Hassil can prefer the old broad {reminder_text} pattern to a later
+        {reminder_text} ... {person} pattern. Resolve that bounded phrase using
+        the actual configured owner names, without moving across lists.
+        """
+        if not _is_ru(intent_obj) or _text(intent_obj.slots, "person"):
+            return
+        from .voice_ru import extract_owner_clause
+        from . import all_managers
+
+        names = [manager.name for manager in all_managers(hass)]
+        strict = self.intent_type in {
+            "CustomReminderCancel", "CustomReminderCancelAt",
+            "CustomReminderSkip", "CustomReminderEdit",
+        }
+        for key in ("reminder_text", "fallback_rest"):
+            text = _text(intent_obj.slots, key)
+            if not text:
+                continue
+            owner, cleaned = extract_owner_clause(text, names, strict=strict)
+            if owner:
+                intent_obj.slots["person"] = {"value": owner}
+                intent_obj.slots[key] = {"value": cleaned}
+                return
+
     def _route(self, hass: HomeAssistant, intent_obj) -> tuple:
         """Which list this request means, and whether that was a guess.
 
@@ -754,6 +781,7 @@ class ReminderIntent(intent.IntentHandler):
         """
         from . import all_managers, manager_named
 
+        self._normalize_person_slots(hass, intent_obj)
         managers = all_managers(hass)
         if not managers:
             return None, False
@@ -821,6 +849,7 @@ class ReminderIntent(intent.IntentHandler):
         back is a name that matches no list: answering about John's reminders when
         someone asked about Jen's is worse than saying there is no such list.
         """
+        self._normalize_person_slots(hass, intent_obj)
         spoken = _text(intent_obj.slots, "person")
         routed, ambiguous = self._route(hass, intent_obj)
         if routed is None and spoken and _lists(hass):
@@ -989,6 +1018,7 @@ class SetReminderIntent(ReminderIntent):
         # all AND two lists disagree about what the default hour is.
         manager = self._manager(hass) or lists[0]
 
+        self._normalize_person_slots(hass, intent_obj)
         slots = intent_obj.slots
         text = _text(slots, "reminder_text")
         if not text:
@@ -1045,6 +1075,7 @@ class RecurringReminderIntent(ReminderIntent):
         # See SetReminderIntent: the times are read before whose list is known.
         manager = self._manager(hass) or lists[0]
 
+        self._normalize_person_slots(hass, intent_obj)
         slots = intent_obj.slots
         text = _text(slots, "reminder_text")
         if not text:
