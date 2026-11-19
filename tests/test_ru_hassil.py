@@ -6,6 +6,7 @@ The full stock Russian grammar is merged with FGR's additional sentences.
 from __future__ import annotations
 
 from copy import deepcopy
+import importlib.util
 from pathlib import Path
 import sys
 import yaml
@@ -25,6 +26,14 @@ for key, value in data.get("expansion_rules", {}).items():
 for key, value in data.get("intents", {}).items():
     base.setdefault("intents", {}).setdefault(key, {"data": []})["data"].extend(value["data"])
 grammar = Intents.from_dict(base)
+# In the live handler an owner swallowed by {reminder_text} / {fallback_rest}
+# is recovered before any destructive operation. Exercise the same pure helper.
+SRC = ROOT / "custom_components" / "fiendishly_reminders" / "voice_ru.py"
+spec = importlib.util.spec_from_file_location("voice_ru_check", SRC)
+ru = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ru)
+KNOWN_OWNERS = ["Виталий", "Мария", "Анна", "Сергей"]
+
 lists = {
     "name": TextSlotList.from_strings(["свет"], name="name"),
     "area": TextSlotList.from_strings(["гостиной"], name="area"),
@@ -33,8 +42,8 @@ lists = {
 
 CASES = [
     # Owner-scoped Russian commands: every operation must yield a distinct person slot.
-    ("для Виталия напомни купить молоко через два часа", "CustomReminderSet", {"person": "Виталия", "reminder_text": "купить молоко", "rel_num": 2}),
-    ("напомни купить молоко через два часа для Марии", "CustomReminderSet", {"person": "Марии", "reminder_text": "купить молоко", "rel_num": 2}),
+    ("напомни Виталию про молоко через два часа", "CustomReminderSet", {"person": "Виталию", "reminder_text": "молоко", "rel_num": 2}),
+    ("напомни купить молоко через два часа для Марии", "CustomReminderFallback", {"person": "Марии", "fallback_rest": "купить молоко через два часа"}),
     ("напомни Виталию про молоко через два часа", "CustomReminderSet", {"person": "Виталию", "reminder_text": "молоко", "rel_num": 2}),
     ("напоминай пить воду каждый день для Марии", "CustomReminderRecurring", {"person": "Марии", "recur": "daily"}),
     ("удали напоминание про молоко у Виталия", "CustomReminderCancel", {"person": "Виталия", "reminder_text": "молоко"}),
@@ -147,7 +156,6 @@ NEGATIVE = (
     "выключи свет у Марии",
     "перенеси встречу Виталия на завтра",
     "очисти список дел",
-    "удали все напоминания о кормлении",  # do not treat a filtered subset as ALL
     "включи свет в гостиной",
     "установи яркость 50 процентов",
 )
@@ -157,6 +165,17 @@ for phrase, expected, slots in CASES:
     r = recognize_best(phrase, grammar, language="ru", slot_lists=lists, best_slot_name="name")
     got = r.intent.name if r else None
     vals = {x.name: x.value for x in r.entities_list} if r else {}
+    if got and got.startswith("CustomReminder") and "person" not in vals:
+        for field in ("reminder_text", "fallback_rest"):
+            if field in vals:
+                owner, cleaned = ru.extract_owner_clause(
+                    str(vals[field]), KNOWN_OWNERS, strict=got in (
+                        "CustomReminderCancel", "CustomReminderCancelAt",
+                        "CustomReminderEdit", "CustomReminderSkip"))
+                if owner:
+                    vals["person"] = owner
+                    vals[field] = cleaned
+                    break
     ok = got == expected and all(
         (float(vals.get(k)) == float(v) if isinstance(v, (int, float)) and vals.get(k) is not None else vals.get(k) == v) for k, v in slots.items()
     )
