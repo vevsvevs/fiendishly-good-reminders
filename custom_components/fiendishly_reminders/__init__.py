@@ -741,14 +741,26 @@ def sole_manager(hass: HomeAssistant):
 
 
 def manager_named(hass: HomeAssistant, target: str):
-    """Find a list by name or by entry id. Case- and possessive-insensitive."""
-    wanted = (target or "").strip().casefold().rstrip("'s").strip()
-    for manager in all_managers(hass):
-        if manager.entry.entry_id == target:
-            return manager
-        if manager.name.casefold() == wanted or manager.name.casefold().startswith(wanted):
-            return manager
-    return None
+    """Resolve only a uniquely identified owner (including Russian name cases).
+
+    A prefix is NOT sufficient: with John and Johnny configured, "Joh"
+    must not guess whose reminders to alter. The old rstrip("'s") also
+    damaged names ending in s; strip only a complete English possessive.
+    """
+    from .voice_ru import person_forms
+
+    value = (target or "").strip()
+    if not value:
+        return None
+    managers = all_managers(hass)
+    by_id = [m for m in managers if m.entry.entry_id == value]
+    if len(by_id) == 1:
+        return by_id[0]
+    wanted = value.casefold().replace("ё", "е")
+    if wanted.endswith(("'s", "’s")):
+        wanted = wanted[:-2].strip()
+    candidates = [m for m in managers if wanted in person_forms(m.name)]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _resolve(hass: HomeAssistant, call: ServiceCall):
