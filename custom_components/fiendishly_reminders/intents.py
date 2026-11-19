@@ -1797,6 +1797,14 @@ class CancelReminderIntent(ReminderIntent):
         if not matches:
             return self._say(intent_obj, _ru_message("not_found") if _is_ru(intent_obj)
                              else self.not_found)
+        # "Cancel the milk reminder" is singular, even if several records have
+        # identical titles. Never turn a single-item command into a bulk delete.
+        # Cancel-by-time disambiguates records; CancelAll is an explicit action.
+        if len(matches) > 1:
+            return self._say(intent_obj,
+                             _ru_message("cancel_ambiguous", count=len(matches))
+                             if _is_ru(intent_obj) else
+                             f"I found {len(matches)} matching reminders. Please specify which one; nothing was canceled.")
 
         now = dt_util.now()
         if satellite is None or not will_confirm:
