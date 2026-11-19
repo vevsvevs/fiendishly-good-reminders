@@ -32,6 +32,27 @@ lists = {
 }
 
 CASES = [
+    # Owner-scoped Russian commands: every operation must yield a distinct person slot.
+    ("для Виталия напомни купить молоко через два часа", "CustomReminderSet", {"person": "Виталия", "reminder_text": "купить молоко", "rel_num": 2}),
+    ("напомни купить молоко через два часа для Марии", "CustomReminderSet", {"person": "Марии", "reminder_text": "купить молоко", "rel_num": 2}),
+    ("напомни Виталию про молоко через два часа", "CustomReminderSet", {"person": "Виталию", "reminder_text": "молоко", "rel_num": 2}),
+    ("напоминай пить воду каждый день для Марии", "CustomReminderRecurring", {"person": "Марии", "recur": "daily"}),
+    ("удали напоминание про молоко у Виталия", "CustomReminderCancel", {"person": "Виталия", "reminder_text": "молоко"}),
+    ("отмени у Марии напоминание про воду", "CustomReminderCancel", {"person": "Марии", "reminder_text": "воду"}),
+    ("удали напоминание Виталия про молоко", "CustomReminderCancel", {"person": "Виталия", "reminder_text": "молоко"}),
+    ("удали последнее напоминание у Виталия", "CustomReminderCancel", {"person": "Виталия", "use_last": 1}),
+    ("удали напоминание у Марии в девять вечера", "CustomReminderCancelAt", {"person": "Марии", "hour": 9, "ampm": "pm"}),
+    ("удали все напоминания Виталия", "CustomReminderCancelAll", {"person": "Виталия"}),
+    ("удали все напоминания у Марии", "CustomReminderCancelAll", {"person": "Марии"}),
+    ("очисти список напоминаний Виталия", "CustomReminderCancelAll", {"person": "Виталия"}),
+    ("покажи напоминания Виталия", "CustomReminderList", {"person": "Виталия"}),
+    ("покажи напоминания у Марии", "CustomReminderList", {"person": "Марии"}),
+    ("какое следующее напоминание у Виталия", "CustomReminderNext", {"person": "Виталия"}),
+    ("сколько напоминаний у Марии", "CustomReminderCount", {"person": "Марии"}),
+    ("когда напоминание про воду у Виталия", "CustomReminderFind", {"person": "Виталия", "reminder_text": "воду"}),
+    ("измени напоминание про воду у Марии", "CustomReminderEdit", {"person": "Марии", "reminder_text": "воду"}),
+    ("пропусти следующее напоминание про воду у Виталия", "CustomReminderSkip", {"person": "Виталия", "reminder_text": "воду"}),
+    ("напомни Виталию еще раз через два часа", "CustomReminderAgain", {"person": "Виталию", "rel_num": 2}),
     # Mass deletion must be handled locally by a *separate*, fail-closed intent.
     ("Удали все напоминания", "CustomReminderCancelAll", {}),
     ("отмени все мои напоминания", "CustomReminderCancelAll", {}),
@@ -121,6 +142,10 @@ NEGATIVE = (
     "каждый день включай свет в гостиной",
     "через полчаса поставь таймер на десять минут",
     "удали все задачи из списка покупок",
+    "удали все покупки Марии",
+    "покажи список покупок Виталия",
+    "выключи свет у Марии",
+    "перенеси встречу Виталия на завтра",
     "очисти список дел",
     "удали все напоминания о кормлении",  # do not treat a filtered subset as ALL
     "включи свет в гостиной",
