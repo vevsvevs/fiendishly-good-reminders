@@ -387,4 +387,145 @@ check("mass-delete excludes reminders added after confirmation question", case_m
 
 assert it.CancelAllRemindersIntent in it.HANDLERS
 
+
+# Routing through the real owner selector (extracted without initializing HAOS).
+import ast
+_init_tree = ast.parse((SRC / "__init__.py").read_text(encoding="utf-8"))
+_named_fn = next(n for n in _init_tree.body
+                 if isinstance(n, ast.FunctionDef) and n.name == "manager_named")
+_owner_globals = {"__name__": "fr.owner_test", "__package__": "fr",
+                  "HomeAssistant": object,
+                  "all_managers": lambda hass: pkg.all_managers(hass)}
+exec(compile(ast.fix_missing_locations(ast.Module(body=[_named_fn], type_ignores=[])),
+             "<actual manager_named>", "exec"), _owner_globals)
+owner_fn = _owner_globals["manager_named"]
+pkg.manager_named = owner_fn
+pkg.sole_manager = lambda hass: (
+    pkg.all_managers(hass)[0] if len(pkg.all_managers(hass)) == 1 else None
+)
+
+def case_ru_owner_cases():
+    v=MassManager(1); v.name="Виталий"
+    m=MassManager(1); m.name="Мария"
+    a=MassManager(1); a.name="Анна"
+    sg=MassManager(1); sg.name="Сергей"
+    pkg.all_managers=lambda hh:[v,m,a,sg]
+    h=MassHass([])
+    for spoken,expected in (
+        ("Виталий",v), ("Виталия",v), ("Виталию",v), ("Виталии",v),
+        ("Мария",m), ("Марии",m), ("Марию",m),
+        ("Анна",a), ("Анны",a), ("Анне",a), ("Анну",a),
+        ("Сергей",sg), ("Сергея",sg), ("Сергею",sg)):
+        assert owner_fn(h,spoken) is expected, spoken
+    for unknown in ("Вит", "Витал", "Мар", "Иван", "Марианна"):
+        assert owner_fn(h,unknown) is None, unknown
+check("routing: Russian owner nominative, dative and genitive",case_ru_owner_cases)
+
+def case_english_possessive():
+    j=MassManager(1); j.name="James"
+    pkg.all_managers=lambda hh:[j]
+    h=MassHass([])
+    assert owner_fn(h,"James's") is j
+    assert owner_fn(h,"James’s") is j
+    assert owner_fn(h,"James") is j
+    assert owner_fn(h,"Jam") is None
+check("routing: English 's remains functional without stripping names",case_english_possessive)
+
+def case_ambiguous_names():
+    a=MassManager(1); a.name="Мария"
+    b=MassManager(1); b.name="Марий"
+    pkg.all_managers=lambda hh:[a,b]
+    assert owner_fn(MassHass([]),"Мария") is None  # same form for both
+check("routing: ambiguous declined owner names fail closed",case_ambiguous_names)
+
+def case_declined_owner_replies():
+    v=MassManager(1); v.name="Виталий"
+    m=MassManager(1); m.name="Мария"
+    for phrase,wanted in (("для Виталия",v), ("у Марии",m),
+                          ("напоминания Виталия",v),
+                          ("это для Марии",m)):
+        h=MassHass([{"sentence":phrase}])
+        chosen,heard=run(it._ask_whose_once(
+            h,"assist_satellite.kitchen",[v,m],"Чьи напоминания?","ru"))
+        assert chosen is wanted,(phrase,chosen)
+    h=MassHass([{"sentence":"для Виталия и Марии"}])
+    chosen,heard=run(it._ask_whose_once(
+        h,"assist_satellite.kitchen",[v,m],"Чьи напоминания?","ru"))
+    assert chosen is None
+check("dialogue: declined Russian owner replies and ambiguous speech",case_declined_owner_replies)
+
+def make_routing_manager(name, n=1):
+    m=MassManager(n); m.name=name
+    for r in m.items.values(): r.text="купить молоко"
+    m.store.find=lambda needle, mm=m: [
+        r for r in mm.items.values() if needle.casefold() in r.text.casefold()
+    ]
+    m.store.find_loose=m.store.find
+    m.find_at=lambda when, mm=m: list(mm.items.values())
+    return m
+
+def call_individual(manager_list, spoken_text, owner=None, *, by_time=False):
+    pkg.all_managers=lambda h:manager_list
+    h=MassHass([]); h.config.language="en"
+    obj=MassIntent(h,device_id=None)
+    obj.slots={
+        ("hour" if by_time else "reminder_text"): {"value": 9 if by_time else spoken_text}
+    }
+    if owner is not None: obj.slots["person"]={"value":owner}
+    handler=(it.CancelReminderAtIntent() if by_time else it.CancelReminderIntent())
+    handler._confirms=lambda m:False
+    handler._satellite=lambda *args:None
+    response=run(handler.async_handle(obj))
+    return response, obj
+
+def case_single_delete_owners():
+    v=make_routing_manager("Виталий")
+    m=make_routing_manager("Мария")
+    response,obj=call_individual([v,m],"молоко у Марии")
+    assert len(v.items)==1 and len(m.deleted)==1, response.speech
+    assert obj.slots["person"]["value"]=="Марии"
+    assert obj.slots["reminder_text"]["value"]=="молоко"
+check("delete: declined owner only deletes within selected person's list",case_single_delete_owners)
+
+def case_single_delete_wrong_owner():
+    v=make_routing_manager("Виталий")
+    response,obj=call_individual([v],"молоко",owner="Павла")
+    assert len(v.items)==1 and not v.deleted
+    assert "Павла" in response.speech
+check("delete: explicitly unknown owner cannot use sole list",case_single_delete_wrong_owner)
+
+def case_single_delete_duplicate():
+    m=make_routing_manager("Виталий",3)
+    response,obj=call_individual([m],"молоко")
+    assert len(m.items)==3 and not m.deleted
+    assert "Уточните" in response.speech
+check("delete: singular request never removes three identically titled records",case_single_delete_duplicate)
+
+def case_same_time_duplicate():
+    m=make_routing_manager("Виталий",2)
+    response,obj=call_individual([m],None,by_time=True)
+    assert len(m.items)==2 and not m.deleted
+    assert "Уточните" in response.speech
+check("delete: two reminders at the same time are not arbitrarily selected",case_same_time_duplicate)
+
+def case_delete_ambiguous_owner():
+    v=make_routing_manager("Виталий")
+    m=make_routing_manager("Мария")
+    response,obj=call_individual([v,m],"молоко")
+    assert not v.deleted and not m.deleted
+check("delete: multiple lists without owner remain unchanged",case_delete_ambiguous_owner)
+
+def case_unknown_mass_owner():
+    m=MassManager(3);m.name="Виталий"
+    pkg.all_managers=lambda h:[m]
+    h=MassHass([])
+    obj=MassIntent(h,device_id="device")
+    obj.slots["person"]={"value":"о кормлении"}
+    handler=it.CancelAllRemindersIntent()
+    handler._satellite=lambda *args:"assist_satellite.kitchen"
+    response=run(handler.async_handle(obj))
+    assert len(m.items)==3 and not h.questions and "о кормлении" in response.speech
+check("delete all: vague subject never triggers a purge",case_unknown_mass_owner)
+
+
 print(f"RESULT {len(cases)} Russian dialogue assertions")
