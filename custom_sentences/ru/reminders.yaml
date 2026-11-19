@@ -643,6 +643,18 @@ intents:
           - "по {weekday} в {hour} {ampm} <fgr_repeat> {reminder_text}"
         slots:
           recur: "weekly"
+  # A destructive, explicit command. Only the dedicated handler can act on
+  # these phrases; its live confirmation is mandatory even if confirm_cancel is off.
+  # No wildcard: "удали все напоминания о X" is NOT delete-everything.
+  CustomReminderCancelAll:
+    data:
+      - sentences:
+          - "(удали|отмени|сотри|убери) (все|вообще все|абсолютно все) [мои] [запланированные] напоминания"
+          - "(удали|отмени|сотри|убери) [пожалуйста] все [мои] напоминания"
+          - "(очисти|опустоши) [весь] список [моих] напоминаний"
+          - "(очисти|сотри) [все] [мои] напоминания (полностью|целиком)"
+          - "(удали|отмени) (все|каждое) напоминание [целиком]"
+          - "(удали|отмени) все напоминания [из моего списка]"
   CustomReminderCancel:
     data:
       - sentences:
