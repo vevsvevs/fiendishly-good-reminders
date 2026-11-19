@@ -60,6 +60,79 @@ def number(value: str) -> int | None:
     return sum(parts)
 
 
+
+
+def person_forms(name: str) -> set[str]:
+    """Conservative Russian name forms for owner selection.
+
+    These are *candidates*, never authority: the caller must require exactly
+    one configured owner to match. Unknown names are never guessed from a
+    prefix or a fuzzy similarity in a destructive command.
+    """
+    raw = _normalize(name).strip(" .,!?«»")
+    if not raw:
+        return set()
+
+    def inflect(word: str) -> set[str]:
+        forms = {word}
+        if len(word) < 3 or not re.fullmatch(r"[а-я]+", word):
+            return forms
+        if word.endswith("ий"):
+            root = word[:-2]
+            return forms | {root + suffix for suffix in ("ия", "ию", "ии", "ием")}
+        if word.endswith("ей"):
+            root = word[:-2]
+            return forms | {root + suffix for suffix in ("ея", "ею", "ее", "еем")}
+        if word.endswith("ия"):
+            root = word[:-2]
+            return forms | {root + suffix for suffix in ("ии", "ию", "ией")}
+        if word.endswith("а"):
+            root = word[:-1]
+            return forms | {root + suffix for suffix in ("ы", "и", "е", "у", "ой", "ою")}
+        if word.endswith("я"):
+            root = word[:-1]
+            return forms | {root + suffix for suffix in ("и", "е", "ю", "ей", "ею")}
+        if word.endswith("ь"):
+            root = word[:-1]
+            return forms | {root + suffix for suffix in ("я", "ю", "ем", "е", "и", "ью")}
+        if word[-1] in "бвгджзклмнпрстфхцчшщ":
+            return forms | {word + suffix for suffix in ("а", "у", "ом", "ем", "е")}
+        return forms
+
+    words = raw.split()
+    if len(words) == 1:
+        return inflect(raw)
+    # For full names, do not generate arbitrary combinations of independently
+    # declined tokens (those can accidentally match another owner's name).
+    return {raw}
+
+
+def owner_responses(name: str) -> list[str]:
+    """Answer candidates for an assist_satellite.ask_question owner prompt."""
+    base = _normalize(name).strip()
+    forms = person_forms(name)
+    answers = {base}
+    for form in forms:
+        answers.add(form)
+        answers.add(f"для {form}")
+        answers.add(f"у {form}")
+        answers.add(f"это {form}")
+        answers.add(f"список {form}")
+        answers.add(f"напоминания {form}")
+    return sorted(answers, key=lambda answer: (len(answer), answer))
+
+
+def owner_mentioned(sentence: str, names: list[str]) -> str | None:
+    """Return one unique configured owner name mentioned as a whole-word form."""
+    said = _normalize(sentence)
+    matches = []
+    for name in names:
+        forms = person_forms(name)
+        if any(re.search(r"(?<![а-яa-z0-9])" + re.escape(form) +
+                         r"(?![а-яa-z0-9])", said) for form in forms):
+            matches.append(name)
+    return matches[0] if len(matches) == 1 else None
+
 def _relative(s: str):
     # The free-form answer to "Когда напомнить?" must mean the same thing as
     # the one-turn Hassil slots. Test fractions *before* the integer pattern:
