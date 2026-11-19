@@ -135,6 +135,7 @@ def case_when_success():
         "Когда напомнить?",it.Times((8,15)), "вам", "ru"))
     assert len(m.scheduled)==1 and m.scheduled[0][3]=="ru"
     assert "создано" in h.announced[-1]
+    assert "6 сентября в 14:05" in h.announced[-1]
     check_sat(h)
 check("when: Russian question and creation",case_when_success)
 
@@ -164,6 +165,7 @@ def case_whose_success():
     assert not a.scheduled and len(b.scheduled)==1
     assert b.scheduled[0][3]=="ru"
     assert "или" in h.asked[0] and "—" in h.asked[0]
+    assert "7 сентября в 17:00" in h.announced[-1]
     check_sat(h)
 check("owner: Russian selection and confirmation",case_whose_success)
 

@@ -113,9 +113,9 @@ def _ru_message(key: str, **values) -> str:
     return message(key, **values)
 
 
-def _ru_moment(when: datetime) -> str:
+def _ru_moment(when: datetime, *, include_year: bool = True) -> str:
     from .voice_ru import moment
-    return moment(when)
+    return moment(when, include_year=include_year)
 
 
 
@@ -1054,7 +1054,7 @@ class SetReminderIntent(ReminderIntent):
                              else "That time has already passed.")
         if _is_ru(intent_obj):
             return self._say(intent_obj, _ru_message(
-                "created", text=text, when=_ru_moment(when)))
+                "created", text=text, when=_ru_moment(when, include_year=False)))
         whose = f" {self._whose(hass, target) or 'you'}"
         return self._say(
             intent_obj,
@@ -1123,7 +1123,7 @@ class RecurringReminderIntent(ReminderIntent):
 
         if _is_ru(intent_obj):
             return self._say(intent_obj, _ru_message(
-                "recurring_created", text=text, when=_ru_moment(when)))
+                "recurring_created", text=text, when=_ru_moment(when, include_year=False)))
 
         # The store already turns a bound into prose for the to-do row and the card, so
         # the reply reads it back from there rather than describing it a second way.
@@ -1170,7 +1170,7 @@ class RemindAgainIntent(ReminderIntent):
                              else "That time has already passed.")
         if _is_ru(intent_obj):
             return self._say(intent_obj, _ru_message(
-                "again_created", text=last, when=_ru_moment(when)))
+                "again_created", text=last, when=_ru_moment(when, include_year=False)))
         whose = self._whose(hass, manager) or "you"
         return self._say(
             intent_obj,
@@ -1432,7 +1432,7 @@ async def _ask_when_then_schedule(hass, manager, satellite: str, text: str,
             await _announce(
                 hass, satellite, _ru_message(
                     "asked_when_default" if used_default else "asked_when_created",
-                    text=text, when=_ru_moment(reminder.due)))
+                    text=text, when=_ru_moment(reminder.due, include_year=False)))
             return
         # An unanswered question still creates the reminder, so the reply has to say the
         # time out loud - otherwise it is indistinguishable from having been ignored.
@@ -1561,7 +1561,7 @@ async def _ask_whose_then_schedule(hass, satellite: str, managers: list,
         if language.startswith("ru"):
             await _announce(hass, satellite, _ru_message(
                 "ask_whose_created", text=reminder.text,
-                name=manager.name, when=_ru_moment(reminder.due)))
+                name=manager.name, when=_ru_moment(reminder.due, include_year=False)))
             return
         now = dt_util.now()
         every = f" {reminder.every_base}" if reminder.recurring else ""
@@ -2282,7 +2282,7 @@ class ReminderFallbackIntent(ReminderIntent):
                     return self._say(intent_obj, _ru_message("repeat_invalid"))
                 return self._say(intent_obj, _ru_message(
                     "recurring_created" if rrule else "created",
-                    text=reminder.text, when=_ru_moment(reminder.due)))
+                    text=reminder.text, when=_ru_moment(reminder.due, include_year=False)))
 
         question = (_ru_message(
             "ask_when", time="%02d:%02d" % tuple(self._default_time(manager)))

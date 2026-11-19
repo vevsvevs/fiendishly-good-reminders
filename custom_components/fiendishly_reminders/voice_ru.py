@@ -311,9 +311,12 @@ _MONTH_GENITIVE = (
 )
 
 
-def moment(when: datetime) -> str:
+def moment(when: datetime, *, include_year: bool = True) -> str:
     """Russian TTS-friendly date with the month in the correct case."""
-    return f"{when.day} {_MONTH_GENITIVE[when.month - 1]} {when.year} года в {clock(when)}"
+    date = f"{when.day} {_MONTH_GENITIVE[when.month - 1]}"
+    if include_year:
+        date += f" {when.year} года"
+    return f"{date} в {clock(when)}"
 
 
 def delivery_header(name: str | None = None) -> str:
