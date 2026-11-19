@@ -757,12 +757,14 @@ class ReminderIntent(intent.IntentHandler):
         managers = all_managers(hass)
         if not managers:
             return None, False
-        if len(managers) == 1:
-            return managers[0], False
-
+        # An explicit owner always wins over satellite/default routing, even
+        # with only one configured list. A wrong name must never select it.
         if spoken := _text(intent_obj.slots, "person"):
             named = manager_named(hass, spoken)
             return (named, False) if named else (None, True)
+
+        if len(managers) == 1:
+            return managers[0], False
 
         device_id = getattr(intent_obj, "device_id", None)
         if device_id:
@@ -1003,6 +1005,11 @@ class SetReminderIntent(ReminderIntent):
                              else "That time has already passed.")
 
         routed, ambiguous = self._route(hass, intent_obj)
+        if _text(intent_obj.slots, "person") and routed is None:
+            return self._say(intent_obj, _ru_message(
+                "unknown_list", name=_text(intent_obj.slots, "person"))
+                if _is_ru(intent_obj) else
+                f"I don't have a list for {_text(intent_obj.slots, 'person')}.")
         if ambiguous:
             asked = self._ask_whose(hass, intent_obj, text, when, None)
             if asked is not None:
@@ -1060,6 +1067,11 @@ class RecurringReminderIntent(ReminderIntent):
         when, rrule, every = found
 
         routed, ambiguous = self._route(hass, intent_obj)
+        if _text(intent_obj.slots, "person") and routed is None:
+            return self._say(intent_obj, _ru_message(
+                "unknown_list", name=_text(intent_obj.slots, "person"))
+                if _is_ru(intent_obj) else
+                f"I don't have a list for {_text(intent_obj.slots, 'person')}.")
         if ambiguous:
             asked = self._ask_whose(hass, intent_obj, text, when, rrule)
             if asked is not None:
