@@ -1920,10 +1920,10 @@ class CancelReminderAtIntent(CancelReminderIntent):
         when = when_at_slots(dt_util.now(), intent_obj.slots)
         if when is None:
             return None
-        # By time it takes the ONE row it means. The YAML version deleted over a
-        # +/-2 minute window, so two reminders in the same minute both died.
-        found = manager.find_at(when)
-        return found[:1]
+        # Do not silently pick the first of several reminders at the SAME
+        # requested time. The singular cancel handler requires exactly one
+        # match, and asks for clarification otherwise.
+        return manager.find_at(when)
 
 
 # ---------------------------------------------------------------- list, fallback
