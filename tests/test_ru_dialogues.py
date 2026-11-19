@@ -264,4 +264,127 @@ def case_storage_roundtrip():
     assert st.Reminder.from_dict(old).language is None
 check("delivery: stored locale and legacy reminders",case_storage_roundtrip)
 
+
+# Whole-list deletion is a different, high-risk action from canceling one match.
+# It MUST be fail-closed for typed Assist (device_id=None), even if the owner's
+# ordinary "confirm before cancel" setting is disabled.
+class MassManager(Manager):
+    def __init__(self, count=3):
+        super().__init__("Виталий", "one")
+        self.items = {
+            f"r{index}": Rem("покормить малыша", ident=f"r{index}")
+            for index in range(count)
+        }
+        self.store = types.SimpleNamespace(reminders=self.items)
+    def cancel_reminders(self, matches):
+        removed = 0
+        for reminder in matches:
+            if self.items.pop(reminder.id, None):
+                self.deleted.append(reminder.id)
+                removed += 1
+        return removed
+
+class MassHass(Sat):
+    def __init__(self, replies, on_question=None):
+        super().__init__(replies)
+        self.tasks = []
+        self.on_question = on_question
+    def async_create_background_task(self, coro, name=None):
+        task = asyncio.create_task(coro)
+        self.tasks.append(task)
+        return task
+    async def async_call(self, domain, service, data, **kw):
+        if service == "ask_question" and self.on_question:
+            self.on_question()
+        return await super().async_call(domain, service, data, **kw)
+
+class FakeResponse:
+    def async_set_speech(self, text):
+        self.speech = text
+
+class MassIntent:
+    def __init__(self, hass, *, device_id=None, language="ru"):
+        self.hass = hass
+        self.device_id = device_id
+        self.language = language
+        self.slots = {}
+    def create_response(self):
+        return FakeResponse()
+
+def run_mass(reply, *, device_id=None, count=3, ambiguous=False,
+             on_question=None, language="ru"):
+    m = MassManager(count)
+    h = MassHass([reply], on_question=lambda: on_question(m) if on_question else None)
+    obj = MassIntent(h, device_id=device_id, language=language)
+    handler = it.CancelAllRemindersIntent()
+    handler._routed_manager = lambda hass, intent: (
+        (None, None, True) if ambiguous else (m, None, False)
+    )
+    handler._satellite = lambda hass, manager, intent: (
+        "assist_satellite.kitchen" if intent.device_id else None
+    )
+    async def go():
+        response = await handler.async_handle(obj)
+        if h.tasks:
+            await asyncio.gather(*h.tasks)
+        return response
+    response = asyncio.run(go())
+    return m, h, response
+
+def case_mass_no_satellite():
+    m, h, response = run_mass({"id": "yes"}, device_id=None)
+    assert len(m.items) == 3
+    assert not h.asked and not h.announced and not h.tasks
+    assert "требует голосового подтверждения" in response.speech.lower()
+check("mass-delete typed request never deletes", case_mass_no_satellite)
+
+def case_mass_voice_yes():
+    m, h, response = run_mass({"id": "yes"}, device_id="device", count=3)
+    assert not m.items and set(m.deleted) == {"r0", "r1", "r2"}
+    assert response.speech == ""
+    assert "Найдено напоминаний: 3" in h.asked[0]
+    assert h.announced == ["Отменено напоминаний: 3."]
+    assert "да" in h.questions[0]["answers"][0]["sentences"]
+    assert "нет" in h.questions[0]["answers"][1]["sentences"]
+    check_sat(h)
+check("mass-delete voice yes removes three same-named reminders", case_mass_voice_yes)
+
+def case_mass_voice_no():
+    m, h, response = run_mass({"id": "no"}, device_id="device")
+    assert len(m.items) == 3 and not m.deleted
+    assert "не подтверждена" in h.announced[0].lower()
+    check_sat(h)
+check("mass-delete voice no refuses", case_mass_voice_no)
+
+def case_mass_voice_silence():
+    m, h, response = run_mass(None, device_id="device")
+    assert len(m.items) == 3 and not m.deleted
+    assert "не подтверждена" in h.announced[0].lower()
+    check_sat(h)
+check("mass-delete unanswered voice never deletes", case_mass_voice_silence)
+
+def case_mass_empty():
+    m, h, response = run_mass({"id": "yes"}, device_id="device", count=0)
+    assert "нет напоминаний" in response.speech.lower()
+    assert not h.asked and not h.tasks
+check("mass-delete empty list is a no-op", case_mass_empty)
+
+def case_mass_ambiguous():
+    m, h, response = run_mass({"id": "yes"}, device_id="device", ambiguous=True)
+    assert len(m.items) == 3 and not m.deleted
+    assert "несколько списков" in response.speech.lower()
+    assert not h.asked and not h.tasks
+check("mass-delete ambiguous owner never deletes", case_mass_ambiguous)
+
+def case_mass_snapshot():
+    def add_new(manager):
+        manager.items["r-new"] = Rem("новое после вопроса", ident="r-new")
+    m, h, response = run_mass({"id": "yes"}, device_id="device",
+                               on_question=add_new)
+    assert len(m.deleted) == 3
+    assert list(m.items) == ["r-new"]
+check("mass-delete excludes reminders added after confirmation question", case_mass_snapshot)
+
+assert it.CancelAllRemindersIntent in it.HANDLERS
+
 print(f"RESULT {len(cases)} Russian dialogue assertions")
