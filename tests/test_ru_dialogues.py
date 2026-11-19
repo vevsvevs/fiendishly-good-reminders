@@ -530,4 +530,58 @@ def case_unknown_mass_owner():
 check("delete all: vague subject never triggers a purge",case_unknown_mass_owner)
 
 
+def case_spoken_list_limit():
+    m = Manager("Мария", "m")
+    reminders = [Rem(f"пункт {index}", DUE) for index in range(1, 6)]
+    reminders += [Rem("шестой пункт", DUE)]
+    m.store.upcoming = lambda: reminders
+    h = Sat([])
+    handler = it.ListRemindersIntent()
+    answer = handler._answer(h, m, MassIntent(h))
+    assert answer.startswith("Запланировано напоминаний: 6. Назову пять ближайших.")
+    assert "7 сентября в 17:00" in answer and "шестой пункт" not in answer
+    reminders[0].due = DUE.replace(year=DUE.year + 1)
+    assert "7 сентября 2027 года в 17:00" in handler._answer(h, m, MassIntent(h))
+
+check("read: five-item limit and when to announce the year", case_spoken_list_limit)
+
+
+def case_spoken_period():
+    m = Manager("Мария", "m")
+    h = Sat([])
+    tomorrow = MassIntent(h)
+    tomorrow.slots = {"when_kind": {"value": "tomorrow"}}
+    first = DUE.replace(hour=10)
+    second = DUE.replace(hour=14)
+
+    def search(text, start, end):
+        assert text is None
+        assert start == DUE.replace(hour=0)
+        assert end == DUE.replace(hour=23, minute=59, second=59, microsecond=0)
+        return [(Rem("проверить плиту", DUE), [first, second])]
+
+    m.search = search
+    find = it.FindRemindersIntent()._answer(h, m, tomorrow)
+    count = it.CountRemindersIntent()._answer(h, m, tomorrow)
+    assert "проверить плиту" in find and "7 сентября в 10:00" in find
+    assert "и ещё 1 за этот период" in find
+    assert count == "Всего напоминаний: 1."
+
+check("read: date filter and repeat count use the matching occurrences", case_spoken_period)
+
+
+def case_russian_week_boundaries():
+    sunday = dt.now()
+    monday = sunday + datetime.timedelta(days=1)
+    saturday = sunday + datetime.timedelta(days=6)
+    assert it._period(sunday, "week", week_start=0)[1].date() == sunday.date()
+    assert it._period(sunday, "nextweek", week_start=0)[0].date() == monday.date()
+    assert it._period(sunday, "week")[1].date() == saturday.date()
+    assert it._period(sunday, "weekend")[0] == sunday
+    assert it._period(monday, "weekend")[0].date() == saturday.date()
+    assert it._period(monday, "day_after_tomorrow")[0].weekday() == 2
+
+check("read: Russian week and weekend boundaries", case_russian_week_boundaries)
+
+
 print(f"RESULT {len(cases)} Russian dialogue assertions")

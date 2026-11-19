@@ -21,8 +21,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from difflib import SequenceMatcher
+from collections import Counter
 from datetime import datetime, timedelta
+from difflib import SequenceMatcher
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -849,9 +850,8 @@ class ReminderIntent(intent.IntentHandler):
         back is a name that matches no list: answering about John's reminders when
         someone asked about Jen's is worse than saying there is no such list.
         """
-        self._normalize_person_slots(hass, intent_obj)
-        spoken = _text(intent_obj.slots, "person")
         routed, ambiguous = self._route(hass, intent_obj)
+        spoken = _text(intent_obj.slots, "person")
         if routed is None and spoken and _lists(hass):
             return None, (_ru_message("unknown_list", name=spoken) if _is_ru(intent_obj)
                           else f"I don't have a list for {spoken}."), False
@@ -1296,29 +1296,28 @@ async def _ask_whose_once(hass, satellite: str, managers: list, question: str,
     the problem and a person repeating themselves into a speaker that will never agree.
     """
     if language.startswith("ru"):
-        from .voice_ru import owner_responses, owner_mentioned
+        from .voice_ru import owner_mentioned, owner_responses
+
+        owner_forms = [owner_responses(m.name) for m in managers]
+        form_counts = Counter(form for forms in owner_forms for form in forms)
+        answers = [
+            {"id": m.entry.entry_id, "sentences": [form for form in forms if form_counts[form] == 1]}
+            for m, forms in zip(managers, owner_forms)
+        ]
+    else:
+        answers = [
+            {"id": m.entry.entry_id,
+             "sentences": [m.name, f"{m.name}'s", f"for {m.name}",
+                           f"it's for {m.name}", f"it's {m.name}",
+                           f"that's {m.name}", f"{m.name} please",
+                           f"{m.name}'s list", f"put it on {m.name}'s list"]}
+            for m in managers
+        ]
 
     try:
         answer = await hass.services.async_call(
             "assist_satellite", "ask_question",
-            {"entity_id": satellite,
-             "question": question,
-             "answers": [
-                 {"id": m.entry.entry_id,
-                  # Every shape a one-word answer arrives in. A bare name is the common
-                  # one; the rest are what people actually say when prompted with two.
-                  "sentences": (
-                      [form for form in owner_responses(m.name)
-                       if not any(form in owner_responses(other.name)
-                                  for other in managers if other is not m)]
-                      if language.startswith("ru")
-                      else [m.name, f"{m.name}'s", f"for {m.name}",
-                            f"it's for {m.name}", f"it's {m.name}",
-                            f"that's {m.name}", f"{m.name} please",
-                            f"{m.name}'s list", f"put it on {m.name}'s list"]
-                  )}
-                 for m in managers
-             ]},
+            {"entity_id": satellite, "question": question, "answers": answers},
             blocking=True, return_response=True,
         )
     except HomeAssistantError as err:
@@ -1945,9 +1944,14 @@ class ListRemindersIntent(ReminderIntent):
             return _ru_message("no_reminders") if _is_ru(intent_obj) else (
                 f"{who} ain't got any reminders set." if who else "You ain't got any reminders set.")
         if _is_ru(intent_obj):
-            parts = [_ru_message("list_item", text=r.text, when=_ru_moment(r.due))
+            now = dt_util.now()
+            parts = [_ru_message("list_item", text=r.text,
+                                 when=_ru_moment(r.due, include_year=r.due.year != now.year))
                      for r in upcoming[:self.LIMIT]]
-            return _ru_message("list_header", count=len(upcoming)) + " " + "; ".join(parts) + "."
+            header = _ru_message("list_header", count=len(upcoming))
+            if len(upcoming) > self.LIMIT:
+                header += " " + _ru_message("first_five")
+            return f"{header} {'. '.join(parts)}."
         now = dt_util.now()
         parts = [describe(r, now) for r in upcoming[: self.LIMIT]]
         count = len(upcoming)
@@ -1959,23 +1963,27 @@ class ListRemindersIntent(ReminderIntent):
         return f"{head}: {'; '.join(parts)}."
 
 
-def _period(now: datetime, kind: str) -> tuple[datetime, datetime] | None:
-    """A named period as a (start, end) pair.
-
-    "this week" ends on Saturday, matching what skip already means by it - two phrasings
-    of the same word must not disagree about which days they cover.
-    """
+def _period(now: datetime, kind: str, *, week_start: int = 6) -> tuple[datetime, datetime] | None:
+    """Return inclusive bounds using the requested first day of the week."""
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of = lambda d: d.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    def end_of(day: datetime) -> datetime:
+        return day.replace(hour=23, minute=59, second=59, microsecond=0)
+
     if kind == "today":
         return now, end_of(day_start)
-    if kind == "tomorrow":
-        nxt = day_start + timedelta(days=1)
-        return nxt, end_of(nxt)
+    if kind in ("tomorrow", "day_after_tomorrow"):
+        day = day_start + timedelta(days=1 if kind == "tomorrow" else 2)
+        return day, end_of(day)
+    if kind == "weekend":
+        if now.weekday() >= 5:
+            return now, end_of(day_start + timedelta(days=6 - now.weekday()))
+        start = day_start + timedelta(days=5 - now.weekday())
+        return start, end_of(start + timedelta(days=1))
     if kind == "week":
-        return now, end_of(day_start + timedelta(days=(5 - now.weekday()) % 7))
+        return now, end_of(day_start + timedelta(days=(week_start - 1 - now.weekday()) % 7))
     if kind == "nextweek":
-        start = day_start + timedelta(days=(6 - now.weekday()) % 7 or 7)
+        start = day_start + timedelta(days=(week_start - now.weekday()) % 7 or 7)
         return start, end_of(start + timedelta(days=6))
     if kind == "month":
         return now, end_of(_add_months(day_start.replace(day=1), 1) - timedelta(days=1))
@@ -1983,6 +1991,13 @@ def _period(now: datetime, kind: str) -> tuple[datetime, datetime] | None:
         start = _add_months(day_start.replace(day=1), 1)
         return start, end_of(_add_months(start, 1) - timedelta(days=1))
     return None
+
+
+def _weekday_window(now: datetime, weekday: int) -> tuple[datetime, datetime]:
+    day = now + timedelta(days=(weekday - now.weekday()) % 7)
+    start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = day.replace(hour=23, minute=59, second=59, microsecond=0)
+    return max(start, now), end
 
 
 class FindRemindersIntent(ReminderIntent):
@@ -2001,15 +2016,12 @@ class FindRemindersIntent(ReminderIntent):
         window = None
         label = ""
         if kind := _text(slots, "when_kind"):
-            window = _period(now, kind)
+            window = _period(now, kind, week_start=0 if _is_ru(intent_obj) else 6)
             label = {"today": " today", "tomorrow": " tomorrow", "week": " this week",
                      "nextweek": " next week", "month": " this month",
                      "nextmonth": " next month"}.get(kind, "")
         elif (weekday := _int(slots, "weekday")) is not None:
-            start = (now + timedelta(days=(weekday - now.weekday()) % 7)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            window = (max(start, now), start.replace(hour=23, minute=59, second=59))
+            window = _weekday_window(now, weekday)
             label = f" on {DAY_NAMES[weekday]}"
 
         start, end = window if window else (None, None)
@@ -2017,12 +2029,22 @@ class FindRemindersIntent(ReminderIntent):
         if _is_ru(intent_obj):
             if not found:
                 return _ru_message("find_empty")
+            ordered = sorted(
+                ((occurrences[0] if occurrences else reminder.due, reminder, occurrences)
+                 for reminder, occurrences in found),
+                key=lambda match: match[0],
+            )
             parts = []
-            for reminder, occurrences in found[:self.LIMIT]:
-                when = occurrences[0] if occurrences else reminder.due
-                parts.append(_ru_message("list_item", text=reminder.text,
-                                         when=_ru_moment(when)))
-            return _ru_message("find_header", count=len(found)) + " " + "; ".join(parts) + "."
+            for when, reminder, occurrences in ordered[:self.LIMIT]:
+                item = _ru_message("list_item", text=reminder.text,
+                                   when=_ru_moment(when, include_year=when.year != now.year))
+                if occurrences and len(occurrences) > 1:
+                    item += ", " + _ru_message("more_occurrences", count=len(occurrences) - 1)
+                parts.append(item)
+            header = _ru_message("find_header", count=len(found))
+            if len(found) > self.LIMIT:
+                header += " " + _ru_message("first_five")
+            return f"{header} {'. '.join(parts)}."
         who = self._whose(hass, manager)
         if not found:
             empty = f"{who}'s got nothin'" if who else "You've got nothin'"
@@ -2197,8 +2219,10 @@ class NextReminderIntent(ReminderIntent):
             return _ru_message("no_reminders") if _is_ru(intent_obj) else (
                 f"{who} ain't got any reminders set." if who else "You ain't got any reminders set.")
         if _is_ru(intent_obj):
-            return _ru_message("next_reminder", text=upcoming[0].text,
-                               when=_ru_moment(upcoming[0].due))
+            next_reminder = upcoming[0]
+            when = next_reminder.due
+            return _ru_message("next_reminder", text=next_reminder.text,
+                               when=_ru_moment(when, include_year=when.year != dt_util.now().year))
         whose = f"{who}'s next reminder" if who else "Your next reminder"
         return f"{whose} is {describe(upcoming[0], dt_util.now())}."
 
@@ -2216,6 +2240,13 @@ class CountRemindersIntent(ReminderIntent):
         # that renaming the entity cannot break the answer.
         count = len(manager.store.reminders)
         if _is_ru(intent_obj):
+            window = None
+            if kind := _text(intent_obj.slots, "when_kind"):
+                window = _period(dt_util.now(), kind, week_start=0)
+            elif (weekday := _int(intent_obj.slots, "weekday")) is not None:
+                window = _weekday_window(dt_util.now(), weekday)
+            if window is not None:
+                count = len(manager.search(None, *window))
             return _ru_message("reminder_count", count=count)
         who = self._whose(hass, manager)
         subject = f"{who} currently has" if who else "You currently have"

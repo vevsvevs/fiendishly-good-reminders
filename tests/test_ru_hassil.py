@@ -41,8 +41,62 @@ lists = {
 }
 
 CASES = [
+    # Natural spoken reads, with exact scoping checked below.
+    ("что у меня с напоминаниями", "CustomReminderList", {}),
+    ("что там у меня с напоминаниями", "CustomReminderList", {}),
+    ("что у меня из напоминаний", "CustomReminderList", {}),
+    ("расскажи что у меня с напоминаниями", "CustomReminderList", {}),
+    ("расскажи про мои напоминания", "CustomReminderList", {}),
+    ("расскажи какие у меня есть напоминания", "CustomReminderList", {}),
+    ("озвучь все мои напоминания", "CustomReminderList", {}),
+    ("зачитай список моих напоминаний", "CustomReminderList", {}),
+    ("что у меня в списке напоминаний", "CustomReminderList", {}),
+    ("у меня есть напоминания", "CustomReminderList", {}),
+    ("есть ли у меня какие-нибудь напоминания", "CustomReminderList", {}),
+    ("какие напоминания у меня", "CustomReminderList", {}),
+    ("сколько напоминаний у меня на завтра", "CustomReminderCount", {"when_kind": "tomorrow"}),
+    ("когда ближайшее напоминание у меня", "CustomReminderNext", {}),
+    ("какие напоминания у меня стоят", "CustomReminderList", {}),
+    ("расскажи про напоминания Виталия", "CustomReminderList", {"person": "Виталия"}),
+    ("что у Марии с напоминаниями", "CustomReminderList", {"person": "Марии"}),
+    ("какие у Марии напоминания", "CustomReminderList", {"person": "Марии"}),
+    ("прочитай напоминания из списка Марии", "CustomReminderList", {"person": "Марии"}),
+    ("озвучь моё ближайшее напоминание", "CustomReminderNext", {}),
+    ("о чём у меня следующее напоминание", "CustomReminderNext", {}),
+    ("во сколько будет ближайшее напоминание", "CustomReminderNext", {}),
+    ("назови ближайшее напоминание Виталия", "CustomReminderNext", {"person": "Виталия"}),
+    ("когда у Марии будет следующее напоминание", "CustomReminderNext", {"person": "Марии"}),
+    ("сколько всего активных напоминаний у меня", "CustomReminderCount", {}),
+    ("сколько у Марии запланированных напоминаний", "CustomReminderCount", {"person": "Марии"}),
+    ("сколько у меня напоминаний на завтра", "CustomReminderCount", {"when_kind": "tomorrow"}),
+    ("сколько напоминаний у Марии на выходные", "CustomReminderCount", {"person": "Марии", "when_kind": "weekend"}),
+    ("сколько напоминаний у меня в пятницу", "CustomReminderCount", {"weekday": 4}),
+    ("сколько у Марии напоминаний в понедельник", "CustomReminderCount", {"person": "Марии", "weekday": 0}),
+    ("сколько напоминаний сегодня у Марии", "CustomReminderCount", {"person": "Марии", "when_kind": "today"}),
+    ("когда сработает напоминание об оплате", "CustomReminderFind", {"reminder_text": "оплате"}),
+    ("есть ли у меня напоминание про врача", "CustomReminderFind", {"reminder_text": "врача"}),
+    ("расскажи про напоминание о враче", "CustomReminderFind", {"reminder_text": "враче"}),
+    ("во сколько напоминание о враче у Марии", "CustomReminderFind", {"person": "Марии", "reminder_text": "враче"}),
+    ("напоминания на сегодня есть", "CustomReminderFind", {"when_kind": "today"}),
+    ("есть напоминания на сегодня", "CustomReminderFind", {"when_kind": "today"}),
+    ("что за напоминания у меня сегодня", "CustomReminderFind", {"when_kind": "today"}),
+    ("какие напоминания у меня на сегодня", "CustomReminderFind", {"when_kind": "today"}),
+    ("сегодня какие у меня напоминания", "CustomReminderFind", {"when_kind": "today"}),
+    ("расскажи про мои напоминания на завтра", "CustomReminderFind", {"when_kind": "tomorrow"}),
+    ("озвучь мои напоминания на послезавтра", "CustomReminderFind", {"when_kind": "day_after_tomorrow"}),
+    ("есть ли у меня напоминания на выходные", "CustomReminderFind", {"when_kind": "weekend"}),
+    ("что у меня с напоминаниями на этой неделе", "CustomReminderFind", {"when_kind": "week"}),
+    ("какие напоминания у меня запланированы на следующую неделю", "CustomReminderFind", {"when_kind": "nextweek"}),
+    ("что у меня в списке напоминаний в этом месяце", "CustomReminderFind", {"when_kind": "month"}),
+    ("перечисли напоминания на следующий месяц", "CustomReminderFind", {"when_kind": "nextmonth"}),
+    ("что у Марии с напоминаниями на завтра", "CustomReminderFind", {"person": "Марии", "when_kind": "tomorrow"}),
+    ("завтра какие напоминания у Марии", "CustomReminderFind", {"person": "Марии", "when_kind": "tomorrow"}),
+    ("какие напоминания у Марии завтра", "CustomReminderFind", {"person": "Марии", "when_kind": "tomorrow"}),
+    ("есть ли у Марии напоминания на завтра", "CustomReminderFind", {"person": "Марии", "when_kind": "tomorrow"}),
+    ("озвучь напоминания на завтра из списка Марии", "CustomReminderFind", {"person": "Марии", "when_kind": "tomorrow"}),
+    ("какие у меня напоминания во вторник", "CustomReminderFind", {"weekday": 1}),
+    ("прочитай напоминания у Марии на пятницу", "CustomReminderFind", {"person": "Марии", "weekday": 4}),
     # Owner-scoped Russian commands: every operation must yield a distinct person slot.
-    ("напомни Виталию про молоко через два часа", "CustomReminderSet", {"person": "Виталию", "reminder_text": "молоко", "rel_num": 2}),
     ("напомни купить молоко через два часа для Марии", "CustomReminderFallback", {"person": "Марии", "fallback_rest": "купить молоко через два часа"}),
     ("напомни Виталию про молоко через два часа", "CustomReminderSet", {"person": "Виталию", "reminder_text": "молоко", "rel_num": 2}),
     ("напоминай пить воду каждый день для Марии", "CustomReminderRecurring", {"person": "Марии", "recur": "daily"}),
@@ -145,6 +199,11 @@ CASES = [
 ]
 # Must not be claimed by the reminder grammar:
 NEGATIVE = (
+    "что мне нужно сделать завтра",
+    "что мне делать на этой неделе",
+    "что у меня с таймерами",
+    "расскажи про дела на завтра",
+    "перечисли покупки на выходные",
     "поставь таймер на двадцать минут",
     "через четыре с половиной часа включи свет в гостиной",
     "завтра в девять включи свет в гостиной",
@@ -179,6 +238,8 @@ for phrase, expected, slots in CASES:
     ok = got == expected and all(
         (float(vals.get(k)) == float(v) if isinstance(v, (int, float)) and vals.get(k) is not None else vals.get(k) == v) for k, v in slots.items()
     )
+    if expected in ("CustomReminderList", "CustomReminderNext", "CustomReminderCount", "CustomReminderFind"):
+        ok = ok and vals.keys() == slots.keys()
     if not ok:
         failures.append((phrase, got, vals, expected, slots))
     else:
