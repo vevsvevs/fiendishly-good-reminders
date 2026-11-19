@@ -1797,6 +1797,57 @@ class CancelReminderIntent(ReminderIntent):
         return self._say(intent_obj, "")
 
 
+class CancelAllRemindersIntent(ReminderIntent):
+    """Explicit mass cancellation with mandatory live verbal confirmation.
+
+    Unlike single-reminder cancellation, NEVER silently remove all reminders
+    from typed Assist/REST or if the satellite cannot ask a second question.
+    The confirmation setting cannot disable this safeguard. A shared speaker
+    must identify one owner before any mass cancellation can proceed.
+    """
+
+    intent_type = "CustomReminderCancelAll"
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        hass = intent_obj.hass
+        language = _intent_language(intent_obj, hass)
+        russian = language.startswith("ru")
+
+        manager, refusal, ambiguous = self._routed_manager(hass, intent_obj)
+        if refusal:
+            return self._say(intent_obj, refusal)
+        if ambiguous:
+            return self._say(intent_obj,
+                             _ru_message("cancel_all_ambiguous") if russian
+                             else "Please specify which reminder list to clear. Nothing was deleted.")
+        if manager is None:
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
+
+        # Snapshot only this list. Anything created after the question is
+        # never accidentally swept up by a later yes.
+        matches = list(manager.store.reminders.values())
+        if not matches:
+            return self._say(intent_obj,
+                             _ru_message("cancel_all_empty") if russian
+                             else "There are no reminders in that list to remove.")
+
+        satellite = self._satellite(hass, manager, intent_obj)
+        if satellite is None:
+            return self._say(intent_obj,
+                             _ru_message("cancel_all_no_confirmation") if russian
+                             else "Deleting all reminders requires a live satellite confirmation. Nothing was deleted.")
+
+        question = (_ru_message("cancel_all_question", name=manager.name,
+                                count=len(matches)) if russian
+                    else f"Delete all {len(matches)} reminders from {manager.name}'s list, including recurring ones? Answer yes or no.")
+        hass.async_create_background_task(
+            _confirm_then_cancel(hass, manager, satellite, matches, question,
+                                 language=language),
+            name="reminders_confirm_cancel_all",
+        )
+        return self._say(intent_obj, "")
+
+
 class CancelReminderAtIntent(CancelReminderIntent):
     """cancel my reminder at 8:15 tomorrow."""
 
@@ -2178,6 +2229,7 @@ HANDLERS = [
     RemindAgainIntent,
     SkipReminderIntent,
     CancelReminderIntent,
+    CancelAllRemindersIntent,
     CancelReminderAtIntent,
     ListRemindersIntent,
     NextReminderIntent,
