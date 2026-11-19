@@ -1264,6 +1264,9 @@ async def _ask_whose_once(hass, satellite: str, managers: list, question: str,
     next question quotes it - "I heard 'james'" is the difference between a person fixing
     the problem and a person repeating themselves into a speaker that will never agree.
     """
+    if language.startswith("ru"):
+        from .voice_ru import owner_responses, owner_mentioned
+
     try:
         answer = await hass.services.async_call(
             "assist_satellite", "ask_question",
@@ -1274,7 +1277,9 @@ async def _ask_whose_once(hass, satellite: str, managers: list, question: str,
                   # Every shape a one-word answer arrives in. A bare name is the common
                   # one; the rest are what people actually say when prompted with two.
                   "sentences": (
-                      [m.name, f"для {m.name}", f"это {m.name}", f"{m.name} пожалуйста"]
+                      [form for form in owner_responses(m.name)
+                       if not any(form in owner_responses(other.name)
+                                  for other in managers if other is not m)]
                       if language.startswith("ru")
                       else [m.name, f"{m.name}'s", f"for {m.name}",
                             f"it's for {m.name}", f"it's {m.name}",
@@ -1299,12 +1304,18 @@ async def _ask_whose_once(hass, satellite: str, managers: list, question: str,
     # No canned sentence matched, but something was said. The raw transcript is worth two
     # looks: the name inside a longer phrase, then a near miss on the name itself, which
     # is what "Jenn" or "Johns" arrives as.
-    said = heard.casefold()
-    named = [m for m in managers if m.name.casefold() in said]
-    if len(named) != 1:
-        named = [m for m in managers
-                 if SequenceMatcher(None, m.name.casefold(), said.strip(" .!?")).ratio()
-                 >= NAME_SIMILARITY]
+    if language.startswith("ru"):
+        # No fuzzy guessing for a Russian name: the user may be about to
+        # delete or edit somebody else's reminder. Declensions are explicit.
+        chosen_name = owner_mentioned(heard, [m.name for m in managers])
+        named = [m for m in managers if m.name == chosen_name]
+    else:
+        said = heard.casefold()
+        named = [m for m in managers if m.name.casefold() in said]
+        if len(named) != 1:
+            named = [m for m in managers
+                     if SequenceMatcher(None, m.name.casefold(), said.strip(" .!?")).ratio()
+                     >= NAME_SIMILARITY]
     # Only when it points at exactly ONE list - "John or Jen?" repeated back is not an
     # answer, and guessing between two people is the one thing worse than asking again.
     if len(named) == 1:
