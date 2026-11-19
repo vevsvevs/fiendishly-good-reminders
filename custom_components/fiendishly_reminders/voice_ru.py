@@ -107,6 +107,41 @@ def person_forms(name: str) -> set[str]:
     return {raw}
 
 
+def extract_owner_clause(text: str, names: list[str],
+                         strict: bool = False) -> tuple[str | None, str]:
+    """Find an explicit, bounded owner phrase accidentally swallowed by a wildcard.
+
+    Returns (owner-as-spoken, task-text). Names are selected from configured
+    lists, not from free text. For destructive verbs strict=True refuses an
+    unknown explicit owner rather than treating it as reminder text.
+    """
+    raw = (text or "").strip()
+    # Suffix forms: «покормить малыша у Виталия» / «... из списка Марии».
+    suffix = re.match(
+        r"^(?P<task>.+)\s+(?:у|для|из списка)\s+(?P<owner>[а-яёa-z0-9 -]+)$",
+        raw, flags=re.I,
+    )
+    if suffix:
+        spoken = suffix.group("owner").strip()
+        name = owner_mentioned(spoken, names)
+        if name and _normalize(spoken) in person_forms(name):
+            return spoken, suffix.group("task").strip()
+        if strict:
+            return spoken, suffix.group("task").strip()
+
+    # Prefix with a delimiter: «Виталию про молоко», «Марии о завтраке».
+    prefix = re.match(
+        r"^(?P<owner>[а-яёa-z0-9 -]+?)\s+(?:о|об|про)\s+(?P<task>.+)$",
+        raw, flags=re.I,
+    )
+    if prefix:
+        spoken = prefix.group("owner").strip()
+        name = owner_mentioned(spoken, names)
+        if name and _normalize(spoken) in person_forms(name):
+            return spoken, prefix.group("task").strip()
+    return None, raw
+
+
 def owner_responses(name: str) -> list[str]:
     """Answer candidates for an assist_satellite.ask_question owner prompt."""
     base = _normalize(name).strip()
