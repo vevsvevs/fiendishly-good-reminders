@@ -32,6 +32,13 @@ lists = {
 }
 
 CASES = [
+    # Mass deletion must be handled locally by a *separate*, fail-closed intent.
+    ("Удали все напоминания", "CustomReminderCancelAll", {}),
+    ("отмени все мои напоминания", "CustomReminderCancelAll", {}),
+    ("сотри вообще все запланированные напоминания", "CustomReminderCancelAll", {}),
+    ("очисти список напоминаний", "CustomReminderCancelAll", {}),
+    ("удали каждое напоминание", "CustomReminderCancelAll", {}),
+    ("удали напоминания полностью", "CustomReminderCancelAll", {}),
     # Time-first user utterance from the provided Assist log. It must never reach Codex.
     ("Через четыре с половиной часа напомни покормить малыша", "CustomReminderSet",
      {"reminder_text": "покормить малыша", "rel_num": 4, "rel_unit": "hours", "rel_fraction": "half"}),
@@ -113,6 +120,9 @@ NEGATIVE = (
     "завтра в девять включи свет в гостиной",
     "каждый день включай свет в гостиной",
     "через полчаса поставь таймер на десять минут",
+    "удали все задачи из списка покупок",
+    "очисти список дел",
+    "удали все напоминания о кормлении",  # do not treat a filtered subset as ALL
     "включи свет в гостиной",
     "установи яркость 50 процентов",
 )
