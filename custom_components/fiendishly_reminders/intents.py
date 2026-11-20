@@ -1646,7 +1646,8 @@ async def _ask_then_edit(hass, manager, satellite: str, reminder_id: str,
 
 async def _confirm_then_cancel(hass, manager, satellite: str, matches, question: str,
                                skip: tuple[str, str] | None = None,
-                               language: str = "en") -> None:
+                               language: str = "en", *,
+                               skip_id: tuple[str, str] | None = None) -> None:
     """Ask on the satellite, and cancel only on yes.
 
     Runs detached from the turn that started it, because ask_question opens a new
@@ -1690,6 +1691,12 @@ async def _confirm_then_cancel(hass, manager, satellite: str, matches, question:
             await _announce(hass, satellite,
                             _ru_message("not_canceled") if language.startswith("ru")
                             else "Alright, not canceled.")
+            return
+
+        if skip_id is not None:
+            reminder_id, scope = skip_id
+            result = manager.skip(None, scope, reminder_id=reminder_id)
+            await _announce(hass, satellite, _skip_speech(result, scope, dt_util.now(), language))
             return
 
         if skip is not None:

@@ -40,6 +40,7 @@ _MONTH_NAMES = [
 _STOPWORDS = {
     "a", "an", "the", "my", "me", "to", "for", "of", "and", "at", "on", "in", "it",
     "this", "that", "is", "reminder", "reminders", "about",
+    "про", "мои", "мое", "мне", "напоминание", "напоминания", "напоминаний",
 }
 
 
@@ -49,9 +50,13 @@ AMBIGUOUS_MARGIN = 0.15
 CONFIDENT_SIMILARITY = 0.7
 
 
+def _normalize_text(text: str) -> str:
+    return (text or "").casefold().replace("ё", "е")
+
+
 def _tokens(text: str) -> list[str]:
-    """Lower-case words, punctuation discarded. "walk, Ozzy." -> ["walk", "ozzy"]."""
-    return [t for t in re.split(r"[^0-9a-z]+", (text or "").casefold()) if t]
+    """Match Unicode words and numbers while discarding punctuation."""
+    return re.findall(r"[^\W_]+", _normalize_text(text))
 
 
 def _content_tokens(text: str) -> list[str]:
@@ -497,7 +502,8 @@ class ReminderStore:
         if not any(len(t) >= 3 for t in _content_tokens(needle)):
             return []
 
-        exact = [r for r in self.reminders.values() if needle.casefold() in r.text.casefold()]
+        normalized = _normalize_text(needle)
+        exact = [r for r in self.reminders.values() if normalized in _normalize_text(r.text)]
         if exact:
             return sorted(exact, key=lambda r: r.due)
 

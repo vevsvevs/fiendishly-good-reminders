@@ -76,4 +76,11 @@ s3=S(["walk Ozzy","walk Ozzie"])
 # "walk ozzi" is an exact substring of "walk ozzie" and of nothing else: tier 1.
 for n,w in [("walk Ozzi",["walk Ozzie"]),("walk Ozzy",["walk Ozzy"])]:
     check("find_loose", s3.find_loose, n, w)
+print("=== Cyrillic and alternate ё spelling ===")
+ru = S(["Покушать", "Проверить отчёт"])
+for n, w in [("покушать", ["Покушать"]), ("проверить отчет", ["Проверить отчёт"]),
+             ("проверить, отчёт завтра", ["Проверить отчёт"]), ("напоминание", []),
+             ("покормить малыша", [])]:
+    check("find", ru.find, n, w)
+
 print("ALL PASS" if ok else "*** SOME FAILED ***")
