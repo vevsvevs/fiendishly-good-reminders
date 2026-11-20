@@ -584,4 +584,100 @@ def case_russian_week_boundaries():
 check("read: Russian week and weekend boundaries", case_russian_week_boundaries)
 
 
+# Exercise the LLM operation schemas and the same FGR manager API as local Assist.
+def load_reminder_tools():
+    from dataclasses import dataclass
+
+    for name in ("homeassistant.components", "homeassistant.components.homeassistant",
+                 "homeassistant.components.llm", "homeassistant.helpers.llm"):
+        sys.modules[name] = types.ModuleType(name)
+    sys.modules["homeassistant.core"].callback = lambda fn: fn
+    home = sys.modules["homeassistant.components.homeassistant"]
+    home.async_should_expose = lambda h, assistant, entity_id: entity_id in h.exposed
+    llm = sys.modules["homeassistant.helpers.llm"]
+
+    @dataclass
+    class Result:
+        data: dict
+        error: bool = False
+
+    llm.ToolResult = Result
+    llm.Tool = object
+    llm.ToolAnnotations = types.SimpleNamespace
+    llm.ToolInput = llm.LLMContext = types.SimpleNamespace
+    llm.LLM_API_ASSIST = "assist"
+    sys.modules["homeassistant.components.llm"].LLMTools = types.SimpleNamespace
+    pkg._as_dict = lambda r, occurrences=None: {"id": r.id, "text": r.text, "due": r.due.isoformat()}
+    loaded = __import__("fr.llm", fromlist=["async_get_tools"])
+    loaded.all_managers = lambda h: pkg.all_managers(h)
+    return loaded
+
+
+tools = load_reminder_tools()
+
+
+def case_llm_schedule_and_exposure():
+    visible = Manager("Виталий", "visible")
+    hidden = Manager("Мария", "hidden")
+    pkg.all_managers = lambda h: [visible, hidden]
+    it.er.async_get = lambda hass: types.SimpleNamespace(
+        async_get_entity_id=lambda domain, platform, unique_id: f"sensor.{unique_id}"
+    )
+    h = MassHass([])
+    h.exposed = {"sensor.visible_next_reminder"}
+    h.states = {"sensor.visible_next_reminder": object(), "sensor.hidden_next_reminder": object()}
+    context = types.SimpleNamespace(assistant="conversation", language="ru", device_id=None)
+    api = tools.async_get_tools(h, context, "assist")
+    assert tools.async_get_tools(h, context, "homeassistant") is None
+    schedule = next(t for t in api.tools if t.name.endswith("__schedule"))
+    args = {"text": "покушать", "delay_seconds": 60}
+    hidden_result = run(schedule.async_call(h, types.SimpleNamespace(
+        tool_args={**args, "target": "hidden"}), context))
+    assert hidden_result.error and not hidden.scheduled
+    invalid = run(schedule.async_call(h, types.SimpleNamespace(tool_args={
+        **args, "due": DUE.isoformat()
+    }), context))
+    assert invalid.error and not visible.scheduled
+    result = run(schedule.async_call(h, types.SimpleNamespace(tool_args=args), context))
+    assert not result.error and result.data["status"] == "success"
+    assert visible.scheduled == [("покушать", dt.now() + datetime.timedelta(seconds=60), None, "ru")]
+    h.exposed.clear()
+    assert tools.async_get_tools(h, context, "assist") is None
+
+check("LLM: schedule and relative time use FGR on the exposed list only", case_llm_schedule_and_exposure)
+
+
+def case_llm_cancel_all_confirmation():
+    manager = Manager("Виталий", "visible")
+    pkg.all_managers = lambda h: [manager]
+    context = types.SimpleNamespace(assistant="conversation", language="ru", device_id="device")
+    tool = next(t for t in tools._TOOLS if t.name.endswith("__cancel_all"))
+    before = it.ReminderIntent._satellite
+    try:
+        it.ReminderIntent._satellite = lambda *args: "assist_satellite.kitchen"
+        h = MassHass([{"id":"yes"}], on_question=lambda: manager.items.update({"later": Rem(ident="later")}))
+        h.data = {}
+        h.exposed = {"sensor.visible_next_reminder"}
+        h.states = {"sensor.visible_next_reminder": object(),
+                    "assist_satellite.kitchen": types.SimpleNamespace(state="idle")}
+
+        async def go():
+            missing = await tool.async_call(h, types.SimpleNamespace(tool_args={}), context)
+            assert missing.error and not h.tasks
+            request = types.SimpleNamespace(tool_args={"target": "visible"})
+            pending = await tool.async_call(h, request, context)
+            duplicate = await tool.async_call(h, request, context)
+            assert pending.data["status"] == "confirmation_pending"
+            assert duplicate.error and not manager.deleted
+            await asyncio.gather(*h.tasks)
+
+        run(go())
+        assert [item.id for item in manager.deleted] == ["r1"]
+        assert "later" in manager.items and len(h.questions) == 1
+    finally:
+        it.ReminderIntent._satellite = before
+
+check("LLM: mass cancellation requires a named target and separate confirmation", case_llm_cancel_all_confirmation)
+
+
 print(f"RESULT {len(cases)} Russian dialogue assertions")
