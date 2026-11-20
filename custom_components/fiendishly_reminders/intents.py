@@ -114,6 +114,11 @@ def _ru_message(key: str, **values) -> str:
     return message(key, **values)
 
 
+def _ru_scheduled(text: str, when: datetime, *, kind: str = "created") -> str:
+    from .voice_ru import scheduled
+    return scheduled(text, when, kind=kind)
+
+
 def _ru_moment(when: datetime, *, include_year: bool = True) -> str:
     from .voice_ru import moment
     return moment(when, include_year=include_year)
@@ -1053,8 +1058,7 @@ class SetReminderIntent(ReminderIntent):
             return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
                              else "That time has already passed.")
         if _is_ru(intent_obj):
-            return self._say(intent_obj, _ru_message(
-                "created", text=text, when=_ru_moment(when, include_year=False)))
+            return self._say(intent_obj, _ru_scheduled(text, when))
         whose = f" {self._whose(hass, target) or 'you'}"
         return self._say(
             intent_obj,
@@ -1122,8 +1126,7 @@ class RecurringReminderIntent(ReminderIntent):
                              else "Beg pardon, I can't repeat one that often.")
 
         if _is_ru(intent_obj):
-            return self._say(intent_obj, _ru_message(
-                "recurring_created", text=text, when=_ru_moment(when, include_year=False)))
+            return self._say(intent_obj, _ru_scheduled(text, when, kind="recurring_created"))
 
         # The store already turns a bound into prose for the to-do row and the card, so
         # the reply reads it back from there rather than describing it a second way.
@@ -1169,8 +1172,7 @@ class RemindAgainIntent(ReminderIntent):
             return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
                              else "That time has already passed.")
         if _is_ru(intent_obj):
-            return self._say(intent_obj, _ru_message(
-                "again_created", text=last, when=_ru_moment(when, include_year=False)))
+            return self._say(intent_obj, _ru_scheduled(last, when, kind="again_created"))
         whose = self._whose(hass, manager) or "you"
         return self._say(
             intent_obj,
@@ -1947,18 +1949,11 @@ class ListRemindersIntent(ReminderIntent):
     def _answer(self, hass, manager, intent_obj) -> str:
         upcoming = manager.store.upcoming()
         who = self._whose(hass, manager)
-        if not upcoming:
-            return _ru_message("no_reminders") if _is_ru(intent_obj) else (
-                f"{who} ain't got any reminders set." if who else "You ain't got any reminders set.")
         if _is_ru(intent_obj):
-            now = dt_util.now()
-            parts = [_ru_message("list_item", text=r.text,
-                                 when=_ru_moment(r.due, include_year=r.due.year != now.year))
-                     for r in upcoming[:self.LIMIT]]
-            header = _ru_message("list_header", count=len(upcoming))
-            if len(upcoming) > self.LIMIT:
-                header += " " + _ru_message("first_five")
-            return f"{header} {'. '.join(parts)}."
+            from .voice_ru import reminder_list
+            return reminder_list([(r, None) for r in upcoming], dt_util.now())
+        if not upcoming:
+            return f"{who} ain't got any reminders set." if who else "You ain't got any reminders set."
         now = dt_util.now()
         parts = [describe(r, now) for r in upcoming[: self.LIMIT]]
         count = len(upcoming)
@@ -2034,24 +2029,9 @@ class FindRemindersIntent(ReminderIntent):
         start, end = window if window else (None, None)
         found = manager.search(needle, start, end)
         if _is_ru(intent_obj):
-            if not found:
-                return _ru_message("find_empty")
-            ordered = sorted(
-                ((occurrences[0] if occurrences else reminder.due, reminder, occurrences)
-                 for reminder, occurrences in found),
-                key=lambda match: match[0],
-            )
-            parts = []
-            for when, reminder, occurrences in ordered[:self.LIMIT]:
-                item = _ru_message("list_item", text=reminder.text,
-                                   when=_ru_moment(when, include_year=when.year != now.year))
-                if occurrences and len(occurrences) > 1:
-                    item += ", " + _ru_message("more_occurrences", count=len(occurrences) - 1)
-                parts.append(item)
-            header = _ru_message("find_header", count=len(found))
-            if len(found) > self.LIMIT:
-                header += " " + _ru_message("first_five")
-            return f"{header} {'. '.join(parts)}."
+            from .voice_ru import reminder_list
+            found.sort(key=lambda row: row[1][0] if row[1] else row[0].due)
+            return reminder_list(found, now, search=True)
         who = self._whose(hass, manager)
         if not found:
             empty = f"{who}'s got nothin'" if who else "You've got nothin'"
@@ -2226,10 +2206,8 @@ class NextReminderIntent(ReminderIntent):
             return _ru_message("no_reminders") if _is_ru(intent_obj) else (
                 f"{who} ain't got any reminders set." if who else "You ain't got any reminders set.")
         if _is_ru(intent_obj):
-            next_reminder = upcoming[0]
-            when = next_reminder.due
-            return _ru_message("next_reminder", text=next_reminder.text,
-                               when=_ru_moment(when, include_year=when.year != dt_util.now().year))
+            from .voice_ru import next_reminder
+            return next_reminder(upcoming[0].text, upcoming[0].due, dt_util.now())
         whose = f"{who}'s next reminder" if who else "Your next reminder"
         return f"{whose} is {describe(upcoming[0], dt_util.now())}."
 
@@ -2318,9 +2296,8 @@ class ReminderFallbackIntent(ReminderIntent):
                     return self._say(intent_obj, _ru_message("past_time"))
                 except InvalidRule:
                     return self._say(intent_obj, _ru_message("repeat_invalid"))
-                return self._say(intent_obj, _ru_message(
-                    "recurring_created" if rrule else "created",
-                    text=reminder.text, when=_ru_moment(reminder.due, include_year=False)))
+                return self._say(intent_obj, _ru_scheduled(
+                    reminder.text, reminder.due, kind="recurring_created" if rrule else "created"))
 
         question = (_ru_message(
             "ask_when", time="%02d:%02d" % tuple(self._default_time(manager)))

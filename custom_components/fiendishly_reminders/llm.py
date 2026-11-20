@@ -20,13 +20,15 @@ from homeassistant.helpers.llm import (
 )
 from homeassistant.util import dt as dt_util
 
-from . import _as_dict, all_managers, manager_named
+from . import _as_dict, all_managers, manager_named, voice_ru
 from .const import DOMAIN, RESULT_OK
 from .intents import (
     ReminderIntent,
+    _canceled_speech,
     _confirm_then_cancel,
     _ru_message,
     _skip_empties_it,
+    _skip_speech,
 )
 from .store import InvalidRule, PastDue
 
@@ -55,7 +57,15 @@ _PROMPT = (
     "cancel deletes the whole reminder. Cancel an entire list only on explicit request "
     "and use cancel_all with the list target. If the result is confirmation_pending, "
     "tell the user to wait for the separate voice prompt. Report a change as completed "
-    "only if the matching FGR tool returned status='success'."
+    "only if the matching FGR tool returned status='success'. "
+    "For a standard Russian response, speak the tool's speech field verbatim without "
+    "adding an introduction or changing the date, time, or reminder text. For a "
+    "next-reminder question use next_speech; for a count question use count_speech. "
+    "For nonstandard questions, use the structured result to compose your own answer. "
+    "When confirming creation, repeating, or a change, or answering which reminder is "
+    "scheduled, always give the actual reminder text and its scheduled date and time. "
+    "Use the returned due time, or the returned matching occurrence for a date-range "
+    "query. Do not substitute the requested delay for the scheduled clock time."
 )
 
 
@@ -65,6 +75,10 @@ def _error(reason: str, **details) -> ToolResult:
 
 def _success(**details) -> ToolResult:
     return ToolResult(data={"status": "success", **details})
+
+
+def _russian(context) -> bool:
+    return (context.language or "").lower().startswith("ru")
 
 
 def _range_date(value: str | None):
@@ -151,35 +165,51 @@ def _select_manager(hass, context, managers, target):
     return None
 
 
-def _schedule(hass, context, manager, args):
+def _schedule(hass, context, manager, args, *, again: bool = False):
     due = _due(args)
     if due is None:
         return _error("Ask when to remind. Provide due or delay_seconds.")
     reminder = manager.schedule(args["text"], due, args.get("rrule"), language=context.language)
-    return _success(reminder=_as_dict(reminder))
+    result = _success(reminder=_as_dict(reminder))
+    if _russian(context):
+        kind = "recurring_created" if reminder.recurring else "created"
+        if again:
+            kind = "again_created"
+        result.data["speech"] = voice_ru.scheduled(reminder.text, reminder.due, kind=kind)
+    return result
 
 
 def _again(hass, context, manager, args):
     if not (last_text := manager.store.last_text):
         return _error("This list has no previous reminder to repeat.")
-    return _schedule(hass, context, manager, {**args, "text": last_text})
+    return _schedule(hass, context, manager, {**args, "text": last_text}, again=True)
 
 
 def _list(hass, context, manager, args):
-    return _find(hass, context, manager, args)
+    return _find(hass, context, manager, args, search=bool(args.get("from") or args.get("until")))
 
 
-def _find(hass, context, manager, args):
+def _find(hass, context, manager, args, *, search: bool = True):
     start = _range_date(args.get("from"))
     end = _range_date(args.get("until"))
     if start and end and start > end:
         return _error("The start of the range must precede its end.")
     rows = manager.search(args.get("text"), start, end)
     rows.sort(key=lambda row: row[1][0] if row[1] else row[0].due)
-    return _success(
+    result = _success(
         count=len(rows), truncated=len(rows) > _LIMIT,
         reminders=[_as_dict(reminder, occurrences) for reminder, occurrences in rows[:_LIMIT]],
     )
+    if _russian(context):
+        now = dt_util.now()
+        result.data["speech"] = voice_ru.reminder_list(rows, now, search=search)
+        result.data["count_speech"] = voice_ru.message("reminder_count", count=len(rows))
+        result.data["next_speech"] = voice_ru.message("no_reminders")
+        if rows:
+            reminder, occurrences = rows[0]
+            when = occurrences[0] if occurrences else reminder.due
+            result.data["next_speech"] = voice_ru.next_reminder(reminder.text, when, now)
+    return result
 
 
 def _edit(hass, context, manager, args):
@@ -191,7 +221,22 @@ def _edit(hass, context, manager, args):
         changes["due"] = due
     if not changes:
         return _error("Specify what to change.")
-    return _success(reminder=_as_dict(manager.edit(reminder, **changes)))
+    was_recurring = reminder.recurring
+    reminder = manager.edit(reminder, **changes)
+    result = _success(reminder=_as_dict(reminder))
+    if _russian(context):
+        if "rrule" in changes and was_recurring and not reminder.recurring:
+            key = "edit_stop_repeat"
+        elif "rrule" in changes and reminder.recurring:
+            key = "edit_recurring"
+        elif "due" in changes and "text" not in changes:
+            key = "edit_moved_series" if was_recurring else "edit_moved"
+        else:
+            key = "ask_edit_done"
+        result.data["speech"] = voice_ru.message(
+            key, text=reminder.text, when=voice_ru.moment(reminder.due)
+        )
+    return result
 
 
 def _confirmation(hass, context, manager, matches, question, *, skip_id=None):
@@ -243,7 +288,11 @@ def _cancel(hass, context, manager, args):
                     if (context.language or "").startswith("ru")
                     else f"Cancel the reminder {reminder.text}? Answer yes or no.")
         return _confirmation(hass, context, manager, [reminder], question)
-    return _success(count=manager.cancel_reminders([reminder]))
+    count = manager.cancel_reminders([reminder])
+    result = _success(count=count)
+    if _russian(context):
+        result.data["speech"] = _canceled_speech(count, context.language)
+    return result
 
 
 def _cancel_all(hass, context, manager, args):
@@ -273,8 +322,11 @@ def _skip(hass, context, manager, args):
     result = manager.skip(None, scope, reminder_id=reminder.id)
     if result["success"] != RESULT_OK:
         return _error(result["error"])
-    return _success(count=result["number"], ended=result["ended"],
-                    occurrences=[when.isoformat() for when in result["occurrences"]])
+    response = _success(count=result["number"], ended=result["ended"],
+                        occurrences=[when.isoformat() for when in result["occurrences"]])
+    if _russian(context):
+        response.data["speech"] = _skip_speech(result, scope, dt_util.now(), context.language)
+    return response
 
 
 _TOOLS = [

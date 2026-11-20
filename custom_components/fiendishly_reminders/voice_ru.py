@@ -319,6 +319,34 @@ def moment(when: datetime, *, include_year: bool = True) -> str:
     return f"{date} в {clock(when)}"
 
 
+def scheduled(text: str, when: datetime, *, kind: str = "created") -> str:
+    """Use the same confirmation for local and tool-based scheduling."""
+    return message(kind, text=text, when=moment(when, include_year=False))
+
+
+def next_reminder(text: str, when: datetime, now: datetime) -> str:
+    return message("next_reminder", text=text,
+                   when=moment(when, include_year=when.year != now.year))
+
+
+def reminder_list(rows, now: datetime, *, search: bool = False) -> str:
+    """Render ordered (reminder, occurrences) rows as a standard spoken answer."""
+    if not rows:
+        return message("find_empty" if search else "no_reminders")
+    parts = []
+    for reminder, occurrences in rows[:5]:
+        when = occurrences[0] if occurrences else reminder.due
+        item = message("list_item", text=reminder.text,
+                       when=moment(when, include_year=when.year != now.year))
+        if occurrences and len(occurrences) > 1:
+            item += ", " + message("more_occurrences", count=len(occurrences) - 1)
+        parts.append(item)
+    header = message("find_header" if search else "list_header", count=len(rows))
+    if len(rows) > 5:
+        header += " " + message("first_five")
+    return f"{header} {'. '.join(parts)}."
+
+
 def delivery_header(name: str | None = None) -> str:
     # A configured owner name has no grammatical case metadata; do not invent its genitive.
     return f"Напоминание из списка «{name}»" if name else "Напоминание"
