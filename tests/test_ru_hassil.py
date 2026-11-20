@@ -106,6 +106,9 @@ CASES = [
     ("расскажи о напоминании про врача", "CustomReminderFind", {"reminder_text": "врача"}),
     ("расскажи о напоминании о встрече у Марии", "CustomReminderFind", {"reminder_text": "встрече", "person": "Марии"}),
     # Natural spoken reads, with exact scoping checked below.
+    ("что с напоминанием", "CustomReminderList", {}),
+    ("Что там с моим напоминанием?", "CustomReminderList", {}),
+    ("что у меня с напоминанием", "CustomReminderList", {}),
     ("что у меня с напоминаниями", "CustomReminderList", {}),
     ("что там у меня с напоминаниями", "CustomReminderList", {}),
     ("что у меня из напоминаний", "CustomReminderList", {}),
@@ -263,6 +266,10 @@ CASES = [
 ]
 # Must not be claimed by the reminder grammar:
 NEGATIVE = (
+    "что с таймером",
+    "что там с моим таймером",
+    "что с будильником",
+    "что с задачами на завтра",
     "что мне нужно сделать завтра",
     "что мне делать на этой неделе",
     "что у меня с таймерами",
