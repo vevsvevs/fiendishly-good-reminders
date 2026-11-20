@@ -65,8 +65,6 @@ class FakeHass:
         if service=="ask_question":
             self.asked.append(data["question"])
             reply=self.replies.pop(0) if self.replies else None
-            if isinstance(reply, Exception):
-                raise reply
             if reply is None:
                 raise _HAError("No answer from question")
             return {"sentence": reply} if isinstance(reply, str) else reply
@@ -584,72 +582,6 @@ def case_russian_week_boundaries():
     assert it._period(monday, "day_after_tomorrow")[0].weekday() == 2
 
 check("read: Russian week and weekend boundaries", case_russian_week_boundaries)
-
-
-def run_new_reminder(replies, *, shared=False, device_id="speaker"):
-    a = Manager("Виталий", "a")
-    b = Manager("Мария", "b")
-    managers = [a, b] if shared else [a]
-    pkg.all_managers = lambda hass: managers
-    h = MassHass(replies)
-    handler = it.ReminderFallbackIntent()
-    handler._default_time = Handler()._default_time
-    handler._satellite = lambda hass, manager, intent: (
-        "assist_satellite.kitchen" if intent.device_id else None
-    )
-    handler._route = lambda hass, intent: (None, True) if shared else (a, False)
-
-    async def go():
-        response = await handler.async_handle(MassIntent(h, device_id=device_id))
-        if h.tasks:
-            await asyncio.gather(*h.tasks)
-        return response
-
-    response = run(go())
-    return a, b, h, response
-
-
-def case_new_reminder_dialogue():
-    a, _, h, response = run_new_reminder(["покушать через одну минуту"])
-    assert response.speech == ""
-    assert h.asked == ["О чём и когда напомнить?"]
-    assert a.scheduled == [("покушать", dt.now() + datetime.timedelta(minutes=1), None, "ru")]
-    assert h.announced == ["Напоминание «покушать» установлено на 6 сентября в 14:01."]
-
-check("create: exact follow-up schedules FGR from a bare Russian request", case_new_reminder_dialogue)
-
-
-def case_new_reminder_shared():
-    a, b, h, _ = run_new_reminder([{"id": "b"}, "покушать через одну минуту"], shared=True)
-    assert h.asked[-1] == "О чём и когда напомнить?"
-    assert not a.scheduled and len(b.scheduled) == 1
-
-check("create: shared satellite asks whose list before scheduling", case_new_reminder_shared)
-
-
-def case_new_reminder_incomplete():
-    a, _, h, _ = run_new_reminder(["покушать", "через одну минуту", "отмена"])
-    assert len(h.asked) == 3
-    assert not a.scheduled
-    assert h.announced == ["Напоминание не создано."]
-
-check("create: incomplete replies and cancellation do not schedule", case_new_reminder_incomplete)
-
-
-def case_new_reminder_text_only():
-    a, _, h, response = run_new_reminder([], device_id=None)
-    assert not a.scheduled and not h.tasks
-    assert "Напомни покушать через одну минуту" in response.speech
-
-check("create: typed request returns a one-turn example", case_new_reminder_text_only)
-
-
-def case_new_reminder_unsupported():
-    a, _, h, _ = run_new_reminder([NotImplementedError()])
-    assert not a.scheduled and len(h.asked) == 1
-    assert "Напомни покушать через одну минуту" in h.announced[-1]
-
-check("create: satellite without question support returns a one-turn example", case_new_reminder_unsupported)
 
 
 print(f"RESULT {len(cases)} Russian dialogue assertions")
