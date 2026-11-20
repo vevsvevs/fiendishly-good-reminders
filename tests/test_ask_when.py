@@ -63,7 +63,7 @@ class FakeReminder:
 
 class FakeManager:
     def __init__(self): self.scheduled=[]
-    def schedule(self, text, due, rrule=None):
+    def schedule(self, text, due, rrule=None, language=None):
         self.scheduled.append((text, due, rrule)); return FakeReminder(due, rrule)
 
 class FakeHass:

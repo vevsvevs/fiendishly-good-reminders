@@ -214,6 +214,9 @@ class Reminder:
     exdates: list[datetime] = field(default_factory=list)
     created: datetime | None = None
     last_fired: datetime | None = None
+    # Preserve the language of the originating Assist request for delayed speech.
+    # Older stored reminders have no language and use the configured HA locale.
+    language: str | None = None
 
     @property
     def recurring(self) -> bool:
@@ -294,6 +297,7 @@ class Reminder:
             "exdates": [d.isoformat() for d in self.exdates],
             "created": self.created.isoformat() if self.created else None,
             "last_fired": self.last_fired.isoformat() if self.last_fired else None,
+            "language": self.language,
         }
 
     @classmethod
@@ -310,6 +314,7 @@ class Reminder:
             exdates=[_dt(d) for d in data.get("exdates", []) if d],
             created=_dt(data.get("created")),
             last_fired=_dt(data.get("last_fired")),
+            language=data.get("language") or None,
         )
 
     def next_occurrence(self, after: datetime) -> datetime | None:
@@ -413,6 +418,7 @@ class ReminderStore:
         text: str,
         due: datetime,
         rrule: str | None = None,
+        language: str | None = None,
     ) -> Reminder:
         rule = normalize_rrule(rrule)
         due = dt_util.as_local(due)
@@ -423,6 +429,7 @@ class ReminderStore:
             dtstart=due,
             rrule=rule,
             created=dt_util.now(),
+            language=language,
         )
         self.reminders[reminder.id] = reminder
         self.async_save()

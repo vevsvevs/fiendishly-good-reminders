@@ -1,0 +1,38 @@
+name: Russian Assist checks
+on:
+  push:
+    branches:
+      - feature/assist-ru-localization
+  pull_request:
+    paths:
+      - "custom_sentences/ru/**"
+      - "custom_components/fiendishly_reminders/**"
+      - "tests/test_ru*"
+jobs:
+  ru:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned recognition test dependencies
+        run: |
+          python -m pip install 'hassil==3.12.1' 'home-assistant-intents==2026.10.27' pyyaml python-dateutil
+      - name: Compile changed modules
+        run: python -m compileall -q custom_components/fiendishly_reminders/voice_ru.py custom_components/fiendishly_reminders/intents.py
+      - name: Original English regression suite
+        run: |
+          for test in tests/test_*.py; do
+            case "$test" in *test_ru_*) continue ;; esac
+            echo "=== $test"
+            python "$test"
+          done
+      - name: Russian parser tests
+        run: python tests/test_ru_voice.py
+      - name: Russian satellite speech and dialogue tests
+        run: python tests/test_ru_dialogues.py
+      - name: Russian delivery channels and legacy language tests
+        run: python tests/test_ru_delivery.py
+      - name: Russian Hassil recognition tests
+        run: python tests/test_ru_hassil.py

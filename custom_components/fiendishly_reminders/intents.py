@@ -21,8 +21,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from difflib import SequenceMatcher
+from collections import Counter
 from datetime import datetime, timedelta
+from difflib import SequenceMatcher
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -91,6 +92,32 @@ NO_SENTENCES = [
     "no", "nope", "no thanks", "don't", "do not", "leave it", "never mind",
     "nevermind", "stop", "keep it",
 ]
+
+
+def _intent_language(intent_obj=None, hass=None) -> str:
+    """Prefer the language of an Assist request over the Home Assistant UI locale."""
+    if intent_obj is not None:
+        value = getattr(intent_obj, "language", None)
+        if value:
+            return str(value).lower().replace("_", "-")
+    if hass is not None:
+        return str(getattr(getattr(hass, "config", None), "language", "en") or "en").lower()
+    return "en"
+
+
+def _is_ru(intent_obj) -> bool:
+    return _intent_language(intent_obj).startswith("ru")
+
+
+def _ru_message(key: str, **values) -> str:
+    from .voice_ru import message
+    return message(key, **values)
+
+
+def _ru_moment(when: datetime, *, include_year: bool = True) -> str:
+    from .voice_ru import moment
+    return moment(when, include_year=include_year)
+
 
 
 # ---------------------------------------------------------------- slot reading
@@ -217,12 +244,21 @@ def when_from_slots(now: datetime, slots: dict,
 
     rel_num = _int(slots, "rel_num")
     if rel_num is not None:
+        # Normalized by Hassil, not by interpreting the spoken numeral as text.
+        # This handles "четыре с половиной часа" as 4.5 hours, and extends
+        # without enumerating every cardinal number or noun declension.
+        fraction = _text(slots, "rel_fraction")
+        fractions = {"": 0, "half": 0.5, "quarter": 0.25,
+                     "three_quarters": 0.75}
+        if fraction not in fractions:
+            return None
+        quantity = rel_num + fractions[fraction]
         unit = _text(slots, "rel_unit", "minutes")
         step = {
-            "seconds": timedelta(seconds=rel_num),
-            "minutes": timedelta(minutes=rel_num),
-            "hours": timedelta(hours=rel_num),
-            "days": timedelta(days=rel_num),
+            "seconds": timedelta(seconds=quantity),
+            "minutes": timedelta(minutes=quantity),
+            "hours": timedelta(hours=quantity),
+            "days": timedelta(days=quantity),
         }.get(unit)
         if step is None:
             return None
@@ -231,12 +267,15 @@ def when_from_slots(now: datetime, slots: dict,
     if _int(slots, "hour") is None and not _slot(slots, "daypart"):
         return None
     h24, minute = _resolve_time(slots, default_time)
+    explicit_day = _slot(slots, "day_offset") is not None
     offset = _int(slots, "day_offset", 0)
     when = (now + timedelta(days=offset)).replace(
         hour=h24, minute=minute, second=0, microsecond=0
     )
-    # A bare clock time that has passed means tomorrow. An explicit day does not roll.
-    return when if (offset > 0 or when > now) else when + timedelta(days=1)
+    # A bare clock time that has passed means tomorrow; "today at 8"
+    # must NOT silently become tomorrow when 8 has already passed.
+    # Its caller reports an explicit past time as invalid.
+    return when if (explicit_day or when > now) else when + timedelta(days=1)
 
 
 def when_at_slots(now: datetime, slots: dict) -> datetime | None:
@@ -496,7 +535,8 @@ def _ampm(raw: str | None) -> str:
     return "pm" if raw.lower().replace(".", "").replace(" ", "").startswith("p") else "am"
 
 
-def _read_time(phrase: str, now: datetime, default_time: tuple[int, int]):
+def _read_time(phrase: str, now: datetime, default_time: tuple[int, int],
+               language: str = "en"):
     """Pull a time expression out of a phrase.
 
     Returns (lead text, due, rrule). Every piece is optional and order does not matter,
@@ -504,6 +544,9 @@ def _read_time(phrase: str, now: datetime, default_time: tuple[int, int]):
     grammar produces and go to the SAME arithmetic - two implementations of "every
     Thursday at 7" would not stay in step.
     """
+    if language.startswith("ru"):
+        from .voice_ru import read_time as read_russian_time
+        return read_russian_time(phrase, now, default_time)
     rest, bound = split_trailing_bound(phrase, now)
     slots: dict = {}
     first = len(rest)
@@ -580,7 +623,8 @@ def _read_time(phrase: str, now: datetime, default_time: tuple[int, int]):
 
 
 def parse_edit_answer(
-    sentence: str, now: datetime, default_time: tuple[int, int]
+    sentence: str, now: datetime, default_time: tuple[int, int],
+    language: str = "en",
 ) -> tuple[str | None, datetime | None, str | None]:
     """Read the spoken answer into (new text, new due, new rrule). None means unchanged.
 
@@ -589,6 +633,9 @@ def parse_edit_answer(
     whether it contains a time at all, which is right most of the time and cannot be
     right always - "Watch Lanterns at 9 pm" is a perfectly good NAME.
     """
+    if language.startswith("ru"):
+        from .voice_ru import parse_edit_answer as parse_russian_edit
+        return parse_russian_edit(sentence, now, default_time)
     said = (sentence or "").strip().rstrip(".!?").strip()
     if not said:
         return None, None, None
@@ -694,6 +741,33 @@ class ReminderIntent(intent.IntentHandler):
 
         return sole_manager(hass)
 
+    def _normalize_person_slots(self, hass: HomeAssistant, intent_obj) -> None:
+        """Recover Russian owner if Hassil swallowed it into a wildcard.
+
+        Hassil can prefer the old broad {reminder_text} pattern to a later
+        {reminder_text} ... {person} pattern. Resolve that bounded phrase using
+        the actual configured owner names, without moving across lists.
+        """
+        if not _is_ru(intent_obj) or _text(intent_obj.slots, "person"):
+            return
+        from .voice_ru import extract_owner_clause
+        from . import all_managers
+
+        names = [manager.name for manager in all_managers(hass)]
+        strict = self.intent_type in {
+            "CustomReminderCancel", "CustomReminderCancelAt",
+            "CustomReminderSkip", "CustomReminderEdit",
+        }
+        for key in ("reminder_text", "fallback_rest"):
+            text = _text(intent_obj.slots, key)
+            if not text:
+                continue
+            owner, cleaned = extract_owner_clause(text, names, strict=strict)
+            if owner:
+                intent_obj.slots["person"] = {"value": owner}
+                intent_obj.slots[key] = {"value": cleaned}
+                return
+
     def _route(self, hass: HomeAssistant, intent_obj) -> tuple:
         """Which list this request means, and whether that was a guess.
 
@@ -708,15 +782,18 @@ class ReminderIntent(intent.IntentHandler):
         """
         from . import all_managers, manager_named
 
+        self._normalize_person_slots(hass, intent_obj)
         managers = all_managers(hass)
         if not managers:
             return None, False
-        if len(managers) == 1:
-            return managers[0], False
-
+        # An explicit owner always wins over satellite/default routing, even
+        # with only one configured list. A wrong name must never select it.
         if spoken := _text(intent_obj.slots, "person"):
             named = manager_named(hass, spoken)
             return (named, False) if named else (None, True)
+
+        if len(managers) == 1:
+            return managers[0], False
 
         device_id = getattr(intent_obj, "device_id", None)
         if device_id:
@@ -773,10 +850,11 @@ class ReminderIntent(intent.IntentHandler):
         back is a name that matches no list: answering about John's reminders when
         someone asked about Jen's is worse than saying there is no such list.
         """
-        spoken = _text(intent_obj.slots, "person")
         routed, ambiguous = self._route(hass, intent_obj)
+        spoken = _text(intent_obj.slots, "person")
         if routed is None and spoken and _lists(hass):
-            return None, f"I don't have a list for {spoken}.", False
+            return None, (_ru_message("unknown_list", name=spoken) if _is_ru(intent_obj)
+                          else f"I don't have a list for {spoken}."), False
         return routed or self._manager(hass), None, ambiguous
 
     def _respond(self, intent_obj: intent.Intent) -> intent.IntentResponse:
@@ -796,7 +874,7 @@ class ReminderIntent(intent.IntentHandler):
             if asked is not None:
                 return asked
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
         return self._say(intent_obj, self._answer(hass, manager, intent_obj))
 
     def _answer(self, hass: HomeAssistant, manager, intent_obj) -> str:
@@ -825,7 +903,9 @@ class ReminderIntent(intent.IntentHandler):
         if satellite is None or len(managers) < 2:
             return None
         hass.async_create_background_task(
-            _ask_whose_then_answer(hass, satellite, managers, answer),
+            _ask_whose_then_answer(
+                hass, satellite, managers, answer,
+                _intent_language(intent_obj, hass)),
             name="reminders_ask_whose_read",
         )
         return self._say(intent_obj, "")
@@ -841,12 +921,14 @@ class ReminderIntent(intent.IntentHandler):
         if satellite is None or len(managers) < 2:
             return None
         hass.async_create_background_task(
-            _ask_whose_then_schedule(hass, satellite, managers, text, due, rrule),
+            _ask_whose_then_schedule(
+                hass, satellite, managers, text, due, rrule,
+                _intent_language(intent_obj, hass)),
             name="reminders_ask_whose",
         )
         return self._say(intent_obj, "")
 
-    def _not_ready(self, hass: HomeAssistant) -> str:
+    def _not_ready(self, hass: HomeAssistant, intent_obj=None) -> str:
         """Why there is no one list to act on.
 
         Three reasons, and they need different answers: still booting (temporary),
@@ -854,13 +936,18 @@ class ReminderIntent(intent.IntentHandler):
         request said which - which is not a fault at all, just a missing word.
         """
         if len(_lists(hass)) > 1:
-            return self._which_list(hass)
+            return self._which_list(hass, intent_obj)
+        locale = _intent_language(intent_obj, hass)
         if not hass.is_running:
-            return "Hold on, I'm still wakin' up."
-        return "Reminders ain't set up."
+            return _ru_message("not_ready") if locale.startswith("ru") else "Hold on, I'm still wakin' up."
+        return _ru_message("no_list") if locale.startswith("ru") else "Reminders ain't set up."
 
-    def _which_list(self, hass: HomeAssistant) -> str:
-        names = " or ".join(sorted(m.name for m in _lists(hass)))
+    def _which_list(self, hass: HomeAssistant, intent_obj=None) -> str:
+        locale = _intent_language(intent_obj, hass)
+        names = (" или " if locale.startswith("ru") else " or ").join(
+            sorted(m.name for m in _lists(hass)))
+        if locale.startswith("ru"):
+            return _ru_message("which_list", names=names)
         return f"Whose list do you mean - {names}? Say a name and I'll sort it."
 
     def _say(self, intent_obj: intent.Intent, speech: str) -> intent.IntentResponse:
@@ -925,36 +1012,49 @@ class SetReminderIntent(ReminderIntent):
         hass = intent_obj.hass
         lists = _lists(hass)
         if not lists:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
         # Whose list this is may not be settled yet, and the times are per-list. Reading
         # them off the first list is only ever visible when the sentence named no time at
         # all AND two lists disagree about what the default hour is.
         manager = self._manager(hass) or lists[0]
 
+        self._normalize_person_slots(hass, intent_obj)
         slots = intent_obj.slots
         text = _text(slots, "reminder_text")
         if not text:
-            return self._say(intent_obj, "Beg pardon, I didn't catch what to remind you about.")
+            return self._say(intent_obj, _ru_message("no_text") if _is_ru(intent_obj)
+                             else "Beg pardon, I didn't catch what to remind you about.")
 
         now = dt_util.now()
         when = when_from_slots(now, slots, self._default_time(manager))
         if when is None:
-            return self._say(intent_obj, "Beg pardon, I couldn't work out when.")
+            return self._say(intent_obj, _ru_message("no_time") if _is_ru(intent_obj)
+                             else "Beg pardon, I couldn't work out when.")
         if when <= now:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
 
         routed, ambiguous = self._route(hass, intent_obj)
+        if _text(intent_obj.slots, "person") and routed is None:
+            return self._say(intent_obj, _ru_message(
+                "unknown_list", name=_text(intent_obj.slots, "person"))
+                if _is_ru(intent_obj) else
+                f"I don't have a list for {_text(intent_obj.slots, 'person')}.")
         if ambiguous:
             asked = self._ask_whose(hass, intent_obj, text, when, None)
             if asked is not None:
                 return asked
         target = routed or self._manager(hass)
         if target is None:
-            return self._say(intent_obj, self._which_list(hass))
+            return self._say(intent_obj, self._which_list(hass, intent_obj))
         try:
-            target.schedule(text, when)
+            target.schedule(text, when, language=_intent_language(intent_obj, hass))
         except PastDue:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
+        if _is_ru(intent_obj):
+            return self._say(intent_obj, _ru_message(
+                "created", text=text, when=_ru_moment(when, include_year=False)))
         whose = f" {self._whose(hass, target) or 'you'}"
         return self._say(
             intent_obj,
@@ -971,40 +1071,59 @@ class RecurringReminderIntent(ReminderIntent):
         hass = intent_obj.hass
         lists = _lists(hass)
         if not lists:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
         # See SetReminderIntent: the times are read before whose list is known.
         manager = self._manager(hass) or lists[0]
 
+        self._normalize_person_slots(hass, intent_obj)
         slots = intent_obj.slots
         text = _text(slots, "reminder_text")
         if not text:
-            return self._say(intent_obj, "Beg pardon, I didn't catch what to remind you about.")
+            return self._say(intent_obj, _ru_message("no_text") if _is_ru(intent_obj)
+                             else "Beg pardon, I didn't catch what to remind you about.")
 
         now = dt_util.now()
-        text, tail_bound = split_trailing_bound(text, now)
+        # English trailing bounds are parsed from free text. Russian bounds belong
+        # in normalized grammar slots and must not pass through English regexes.
+        text, tail_bound = ((text, "") if _is_ru(intent_obj)
+                            else split_trailing_bound(text, now))
         if not text:
-            return self._say(intent_obj, "Beg pardon, I didn't catch what to remind you about.")
+            return self._say(intent_obj, _ru_message("no_text") if _is_ru(intent_obj)
+                             else "Beg pardon, I didn't catch what to remind you about.")
 
         found = recurrence_from_slots(now, slots, tail_bound, self._default_time(manager))
         if found is None:
-            return self._say(intent_obj, "Beg pardon, I couldn't work out when to start that one.")
+            return self._say(intent_obj, _ru_message("no_repeat") if _is_ru(intent_obj)
+                             else "Beg pardon, I couldn't work out when to start that one.")
         when, rrule, every = found
 
         routed, ambiguous = self._route(hass, intent_obj)
+        if _text(intent_obj.slots, "person") and routed is None:
+            return self._say(intent_obj, _ru_message(
+                "unknown_list", name=_text(intent_obj.slots, "person"))
+                if _is_ru(intent_obj) else
+                f"I don't have a list for {_text(intent_obj.slots, 'person')}.")
         if ambiguous:
             asked = self._ask_whose(hass, intent_obj, text, when, rrule)
             if asked is not None:
                 return asked
         manager = routed or self._manager(hass)
         if manager is None:
-            return self._say(intent_obj, self._which_list(hass))
+            return self._say(intent_obj, self._which_list(hass, intent_obj))
         try:
-            reminder = manager.schedule(text, when, rrule)
+            reminder = manager.schedule(text, when, rrule,
+                                        language=_intent_language(intent_obj, hass))
         except PastDue:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
         except InvalidRule:
             _LOGGER.exception("reminders: refused rule for %r", text)
-            return self._say(intent_obj, "Beg pardon, I can't repeat one that often.")
+            return self._say(intent_obj, _ru_message("repeat_invalid") if _is_ru(intent_obj)
+                             else "Beg pardon, I can't repeat one that often.")
+
+        if _is_ru(intent_obj):
+            return self._say(intent_obj, _ru_message(
+                "recurring_created", text=text, when=_ru_moment(when, include_year=False)))
 
         # The store already turns a bound into prose for the to-do row and the card, so
         # the reply reads it back from there rather than describing it a second way.
@@ -1028,23 +1147,30 @@ class RemindAgainIntent(ReminderIntent):
         if refusal:
             return self._say(intent_obj, refusal)
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
         last = (manager.store.last_text or "").strip()
         if not last:
-            return self._say(intent_obj, "Beg pardon, I don't have a reminder to repeat.")
+            return self._say(intent_obj, _ru_message("no_last") if _is_ru(intent_obj)
+                             else "Beg pardon, I don't have a reminder to repeat.")
 
         now = dt_util.now()
         when = when_from_slots(now, intent_obj.slots, self._default_time(manager))
         if when is None:
-            return self._say(intent_obj, "Beg pardon, I couldn't work out when.")
+            return self._say(intent_obj, _ru_message("no_time") if _is_ru(intent_obj)
+                             else "Beg pardon, I couldn't work out when.")
         if when <= now:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
 
         try:
-            manager.schedule(last, when)
+            manager.schedule(last, when, language=_intent_language(intent_obj, hass))
         except PastDue:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
+        if _is_ru(intent_obj):
+            return self._say(intent_obj, _ru_message(
+                "again_created", text=last, when=_ru_moment(when, include_year=False)))
         whose = self._whose(hass, manager) or "you"
         return self._say(
             intent_obj,
@@ -1083,7 +1209,7 @@ class SkipReminderIntent(ReminderIntent):
         if refusal:
             return self._say(intent_obj, refusal)
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
         slots = intent_obj.slots
         if _slot(slots, "use_last") is not None:
@@ -1091,14 +1217,16 @@ class SkipReminderIntent(ReminderIntent):
         else:
             needle = _text(slots, "reminder_text")
         if not needle:
-            return self._say(intent_obj, "Beg pardon, I don't have a reminder to skip.")
+            return self._say(intent_obj, _ru_message("skip_missing") if _is_ru(intent_obj)
+                             else "Beg pardon, I don't have a reminder to skip.")
 
         scope = _text(slots, "scope", "next") or "next"
         now = dt_util.now()
 
         matches = manager.store.find(needle)
         if not matches:
-            return self._say(intent_obj, "Beg pardon, I couldn't find a reminder like that.")
+            return self._say(intent_obj, _ru_message("skip_missing") if _is_ru(intent_obj)
+                             else "Beg pardon, I couldn't find a reminder like that.")
 
         # Skipping a one-off, or the last of a series, removes it. That is a cancellation
         # however it was phrased, so it goes through the same question.
@@ -1117,63 +1245,79 @@ class SkipReminderIntent(ReminderIntent):
                 else:
                     question = (f"That'd finish off {len(emptied)} of 'em, startin' with "
                                 f"{first}. Are you sure?")
+                if _is_ru(intent_obj):
+                    question = _ru_message("skip_confirm", text=emptied[0].text)
                 # One-offs have nothing to skip, so for those the yes must CANCEL.
                 as_skip = None if len(matches) == len(one_offs) else (needle, scope)
                 hass.async_create_background_task(
                     _confirm_then_cancel(hass, manager, satellite, matches, question,
-                                         skip=as_skip),
+                                         skip=as_skip,
+                                         language=_intent_language(intent_obj, hass)),
                     name="reminders_confirm_skip",
                 )
                 return self._say(intent_obj, "")
             if len(matches) == len(one_offs):
                 # Nothing to skip on a one-off; the request means cancel.
                 count = manager.cancel_reminders(matches)
-                return self._say(intent_obj, _canceled_speech(count))
+                return self._say(intent_obj, _canceled_speech(
+                    count, _intent_language(intent_obj, hass)))
 
         result = manager.skip(needle, scope)
 
         # No confirmation, unlike canceling: this drops one occurrence and leaves the
         # series running, and the reply names what it dropped, so it announces itself.
-        return self._say(intent_obj, _skip_speech(result, scope, now))
+        return self._say(intent_obj, _skip_speech(
+            result, scope, now, _intent_language(intent_obj, hass)))
 
 
 # ---------------------------------------------------------------- cancel
 
 
-def _reask(names: str, heard: str | None) -> str:
+def _reask(names: str, heard: str | None, language: str = "en") -> str:
     """The next ask, saying why there is one.
 
     Quoting the transcript is the difference between a person fixing the problem and a
     person repeating themselves into a speaker that will never agree - "I heard james"
     tells you instantly that the name never arrived, which asking again never does.
     """
+    if language.startswith("ru"):
+        return _ru_message("ask_whose_retry", names=names)
     if not heard:
         return f"I didn't get that. Was it {names}?"
     return f"I heard {heard.strip().rstrip('.!?')}. Was it {names}?"
 
 
-async def _ask_whose_once(hass, satellite: str, managers: list, question: str):
+async def _ask_whose_once(hass, satellite: str, managers: list, question: str,
+                          language: str = "en"):
     """Ask once and return the list meant, or None if it was not answered.
 
     Returns (the list, what was heard). The transcript comes back either way, because the
     next question quotes it - "I heard 'james'" is the difference between a person fixing
     the problem and a person repeating themselves into a speaker that will never agree.
     """
+    if language.startswith("ru"):
+        from .voice_ru import owner_mentioned, owner_responses
+
+        owner_forms = [owner_responses(m.name) for m in managers]
+        form_counts = Counter(form for forms in owner_forms for form in forms)
+        answers = [
+            {"id": m.entry.entry_id, "sentences": [form for form in forms if form_counts[form] == 1]}
+            for m, forms in zip(managers, owner_forms)
+        ]
+    else:
+        answers = [
+            {"id": m.entry.entry_id,
+             "sentences": [m.name, f"{m.name}'s", f"for {m.name}",
+                           f"it's for {m.name}", f"it's {m.name}",
+                           f"that's {m.name}", f"{m.name} please",
+                           f"{m.name}'s list", f"put it on {m.name}'s list"]}
+            for m in managers
+        ]
+
     try:
         answer = await hass.services.async_call(
             "assist_satellite", "ask_question",
-            {"entity_id": satellite,
-             "question": question,
-             "answers": [
-                 {"id": m.entry.entry_id,
-                  # Every shape a one-word answer arrives in. A bare name is the common
-                  # one; the rest are what people actually say when prompted with two.
-                  "sentences": [m.name, f"{m.name}'s", f"for {m.name}",
-                                f"it's for {m.name}", f"it's {m.name}",
-                                f"that's {m.name}", f"{m.name} please",
-                                f"{m.name}'s list", f"put it on {m.name}'s list"]}
-                 for m in managers
-             ]},
+            {"entity_id": satellite, "question": question, "answers": answers},
             blocking=True, return_response=True,
         )
     except HomeAssistantError as err:
@@ -1190,12 +1334,18 @@ async def _ask_whose_once(hass, satellite: str, managers: list, question: str):
     # No canned sentence matched, but something was said. The raw transcript is worth two
     # looks: the name inside a longer phrase, then a near miss on the name itself, which
     # is what "Jenn" or "Johns" arrives as.
-    said = heard.casefold()
-    named = [m for m in managers if m.name.casefold() in said]
-    if len(named) != 1:
-        named = [m for m in managers
-                 if SequenceMatcher(None, m.name.casefold(), said.strip(" .!?")).ratio()
-                 >= NAME_SIMILARITY]
+    if language.startswith("ru"):
+        # No fuzzy guessing for a Russian name: the user may be about to
+        # delete or edit somebody else's reminder. Declensions are explicit.
+        chosen_name = owner_mentioned(heard, [m.name for m in managers])
+        named = [m for m in managers if m.name == chosen_name]
+    else:
+        said = heard.casefold()
+        named = [m for m in managers if m.name.casefold() in said]
+        if len(named) != 1:
+            named = [m for m in managers
+                     if SequenceMatcher(None, m.name.casefold(), said.strip(" .!?")).ratio()
+                     >= NAME_SIMILARITY]
     # Only when it points at exactly ONE list - "John or Jen?" repeated back is not an
     # answer, and guessing between two people is the one thing worse than asking again.
     if len(named) == 1:
@@ -1227,7 +1377,8 @@ async def _ask_free(hass, satellite: str, question: str) -> str | None:
 
 
 async def _ask_when_then_schedule(hass, manager, satellite: str, text: str,
-                                  question: str, default_time, whose: str) -> None:
+                                  question: str, default_time, whose: str,
+                                  language: str = "en") -> None:
     """Ask when a reminder should happen, then create it.
 
     This is what makes a reminder sayable in two breaths: name the task, then answer the
@@ -1247,13 +1398,20 @@ async def _ask_when_then_schedule(hass, manager, satellite: str, text: str,
         for attempt in range(ASK_REPEATS):
             said = await _ask_free(
                 hass, satellite,
-                question if attempt == 0 else f"Sorry - {question[0].lower()}{question[1:]}",
+                question if attempt == 0 else (
+                    _ru_message("ask_when_retry") if language.startswith("ru")
+                    else f"Sorry - {question[0].lower()}{question[1:]}"
+                ),
             )
             if said is None:
                 continue                    # silence is not an answer - ask again
-            if _RE_DEFAULT_ANSWER.match(said):
+            if _RE_DEFAULT_ANSWER.match(said) or (
+                language.startswith("ru") and re.fullmatch(
+                    r"\s*(?:(?:как|по)\s+)?умолчанию\s*", said.casefold().replace("ё", "е")
+                )
+            ):
                 break                       # "default" IS an answer, and it ends it
-            _, due, rrule = _read_time(said, now, default_time)
+            _, due, rrule = _read_time(said, now, default_time, language)
             if due is not None:
                 break
             _LOGGER.info("reminders: %r named no time", said)
@@ -1265,22 +1423,31 @@ async def _ask_when_then_schedule(hass, manager, satellite: str, text: str,
             if due <= now:
                 due += timedelta(days=1)
 
-        reminder = manager.schedule(text, due, rrule)
+        reminder = manager.schedule(text, due, rrule, language=language)
         every = f" {reminder.every_base}" if reminder.recurring else ""
         day = "" if reminder.recurring else day_phrase(reminder.due, now)
         tail = f"{text}{every} at {clock(reminder.due)}{day}{reminder.every_bound}."
+        if language.startswith("ru"):
+            await _announce(
+                hass, satellite, _ru_message(
+                    "asked_when_default" if used_default else "asked_when_created",
+                    text=text, when=_ru_moment(reminder.due, include_year=False)))
+            return
         # An unanswered question still creates the reminder, so the reply has to say the
         # time out loud - otherwise it is indistinguishable from having been ignored.
         opening = f"Right, the usual then. I'll remind {whose} to" if used_default \
             else f"Alright, I'll remind {whose} to"
         await _announce(hass, satellite, f"{opening} {tail}")
     except PastDue:
-        await _announce(hass, satellite, "That time has already passed.")
+        await _announce(hass, satellite,
+                        _ru_message("past_time") if language.startswith("ru")
+                        else "That time has already passed.")
     except Exception:  # noqa: BLE001
         _LOGGER.exception("reminders: could not place the reminder after asking when")
 
 
-async def _settle_whose(hass, satellite: str, managers: list, first: str):
+async def _settle_whose(hass, satellite: str, managers: list, first: str,
+                        language: str = "en"):
     """Ask whose list until it is answered. None means it never was.
 
     Every question that has to know whose shares this: the opening words differ, the
@@ -1288,19 +1455,22 @@ async def _settle_whose(hass, satellite: str, managers: list, first: str):
     quoted back, and after ASK_REPEATS the CALLER decides what giving up costs - which
     is not the same for a reminder being made and a question being answered.
     """
-    names = " or ".join(m.name for m in managers)
-    question = f"{first} {names}?"
+    names = (" или " if language.startswith("ru") else " or ").join(
+        m.name for m in managers)
+    question = (f"{first.rstrip(' ?')} — {names}?" if language.startswith("ru")
+                else f"{first} {names}?")
     for _ in range(ASK_REPEATS):
-        chosen, heard = await _ask_whose_once(hass, satellite, managers, question)
+        chosen, heard = await _ask_whose_once(
+            hass, satellite, managers, question, language)
         if chosen is not None:
             return chosen
-        question = _reask(names, heard)
+        question = _reask(names, heard, language)
     _LOGGER.info("reminders: whose list went unanswered %d times", ASK_REPEATS)
     return None
 
 
 async def _ask_whose_then_when(hass, handler, satellite: str, managers: list,
-                               text: str) -> None:
+                               text: str, language: str = "en") -> None:
     """Whose list, then when - a reminder that gave neither needs both asked.
 
     The two questions used to be mutually exclusive: a timeless reminder on a speaker two
@@ -1310,11 +1480,14 @@ async def _ask_whose_then_when(hass, handler, satellite: str, managers: list,
     """
     try:
         await asyncio.sleep(ASK_SETTLE)
-        manager = await _settle_whose(hass, satellite, managers,
-                                      "Who's this reminder for?")
+        manager = await _settle_whose(
+            hass, satellite, managers,
+            _ru_message("ask_whose") if language.startswith("ru")
+            else "Who's this reminder for?", language)
         if manager is None:
-            await _announce(hass, satellite,
-                            "I still don't know whose that is, so I've not set it.")
+            await _announce(
+                hass, satellite, _ru_message("ask_whose_failed") if language.startswith("ru")
+                else "I still don't know whose that is, so I've not set it.")
             return
     except Exception:  # noqa: BLE001
         _LOGGER.exception("reminders: could not settle whose list")
@@ -1323,14 +1496,18 @@ async def _ask_whose_then_when(hass, handler, satellite: str, managers: list,
     # question, its repeats and its fallback all behave exactly as they do on their own.
     await _ask_when_then_schedule(
         hass, manager, satellite, text,
-        ("When should this reminder occur? "
-         f"Default is {handler._default_time_phrase(manager)}."),
+        (_ru_message("ask_when", time="%02d:%02d" % tuple(handler._default_time(manager)))
+         if language.startswith("ru") else
+         ("When should this reminder occur? "
+          f"Default is {handler._default_time_phrase(manager)}.")),
         handler._default_time(manager),
         handler._whose(hass, manager) or "you",
+        language,
     )
 
 
-async def _ask_whose_then_answer(hass, satellite: str, managers: list, answer) -> None:
+async def _ask_whose_then_answer(hass, satellite: str, managers: list, answer,
+                                 language: str = "en") -> None:
     """Ask whose reminders a question is about, then speak the answer for that list.
 
     Same shape as the scheduling question and the same no-deadline repeat, but nothing
@@ -1340,9 +1517,14 @@ async def _ask_whose_then_answer(hass, satellite: str, managers: list, answer) -
     """
     try:
         await asyncio.sleep(ASK_SETTLE)
-        chosen = await _settle_whose(hass, satellite, managers, "Whose reminders?")
+        chosen = await _settle_whose(
+            hass, satellite, managers,
+            _ru_message("ask_whose_read") if language.startswith("ru") else "Whose reminders?",
+            language)
         if chosen is None:
-            await _announce(hass, satellite, "I still don't know whose you mean.")
+            await _announce(hass, satellite,
+                            _ru_message("ask_whose_read_failed") if language.startswith("ru")
+                            else "I still don't know whose you mean.")
             return
         await _announce(hass, satellite, answer(chosen))
     except Exception:  # noqa: BLE001
@@ -1350,7 +1532,8 @@ async def _ask_whose_then_answer(hass, satellite: str, managers: list, answer) -
 
 
 async def _ask_whose_then_schedule(hass, satellite: str, managers: list,
-                                   text: str, due: datetime, rrule: str | None) -> None:
+                                   text: str, due: datetime, rrule: str | None,
+                                   language: str = "en") -> None:
     """Ask whose list this is, then create it. Detached, like every other question.
 
     The question is asked until it is answered - there is no deadline on it anywhere,
@@ -1361,16 +1544,24 @@ async def _ask_whose_then_schedule(hass, satellite: str, managers: list,
     """
     try:
         await asyncio.sleep(ASK_SETTLE)
-        chosen = await _settle_whose(hass, satellite, managers,
-                                     "Who's this reminder for?")
+        chosen = await _settle_whose(
+            hass, satellite, managers,
+            _ru_message("ask_whose") if language.startswith("ru")
+            else "Who's this reminder for?", language)
         if chosen is None:
             await _announce(
                 hass, satellite,
-                "I still don't know whose that is, so I've not set it.",
+                _ru_message("ask_whose_failed") if language.startswith("ru")
+                else "I still don't know whose that is, so I've not set it.",
             )
             return
         manager = chosen
-        reminder = manager.schedule(text, due, rrule)
+        reminder = manager.schedule(text, due, rrule, language=language)
+        if language.startswith("ru"):
+            await _announce(hass, satellite, _ru_message(
+                "ask_whose_created", text=reminder.text,
+                name=manager.name, when=_ru_moment(reminder.due, include_year=False)))
+            return
         now = dt_util.now()
         every = f" {reminder.every_base}" if reminder.recurring else ""
         when = clock(reminder.due)
@@ -1382,7 +1573,7 @@ async def _ask_whose_then_schedule(hass, satellite: str, managers: list,
 
 
 async def _ask_then_edit(hass, manager, satellite: str, reminder_id: str,
-                         default_time: tuple[int, int]) -> None:
+                         default_time: tuple[int, int], language: str = "en") -> None:
     """Ask what the reminder should become, then apply it.
 
     Detached for the same reason the cancel confirmation is: ask_question opens a new
@@ -1398,35 +1589,50 @@ async def _ask_then_edit(hass, manager, satellite: str, reminder_id: str,
                 {"entity_id": satellite,
                  # The question teaches the three openings, because the answer is free
                  # speech and nothing else tells the user they exist.
-                 "question": "What should I change? Say change the reminder to, "
-                             "change the timing to, or replace with."},
+                 "question": (_ru_message("ask_edit") if language.startswith("ru")
+                              else "What should I change? Say change the reminder to, "
+                                   "change the timing to, or replace with.")},
                 blocking=True, return_response=True,
             )
         except HomeAssistantError as err:
             _LOGGER.info("reminders: no answer to the edit (%s), nothing changed", err)
-            await _announce(hass, satellite, "Alright, leavin' it be.")
+            await _announce(hass, satellite,
+                            _ru_message("ask_edit_unchanged") if language.startswith("ru")
+                            else "Alright, leavin' it be.")
             return
 
         said = (answer or {}).get("sentence") or ""
         reminder = manager.store.reminders.get(reminder_id)
         if reminder is None:
-            await _announce(hass, satellite, "Beg pardon, that one's gone now.")
+            await _announce(hass, satellite,
+                            _ru_message("ask_edit_missing") if language.startswith("ru")
+                            else "Beg pardon, that one's gone now.")
             return
 
         now = dt_util.now()
-        text, due, rrule = parse_edit_answer(said, now, default_time)
+        text, due, rrule = parse_edit_answer(said, now, default_time, language)
         if text is None and due is None and rrule is None:
-            await _announce(hass, satellite, "Beg pardon, I didn't catch that. Nothin' changed.")
+            await _announce(hass, satellite,
+                            _ru_message("ask_edit_error") if language.startswith("ru")
+                            else "Beg pardon, I didn't catch that. Nothin' changed.")
             return
         try:
             manager.edit(reminder, text, due, rrule)
         except PastDue:
-            await _announce(hass, satellite, "That time has already passed. Nothin' changed.")
+            await _announce(hass, satellite,
+                            _ru_message("past_time") if language.startswith("ru")
+                            else "That time has already passed. Nothin' changed.")
             return
         except InvalidRule:
-            await _announce(hass, satellite, "I can't repeat one that often. Nothin' changed.")
+            await _announce(hass, satellite,
+                            _ru_message("repeat_invalid") if language.startswith("ru")
+                            else "I can't repeat one that often. Nothin' changed.")
             return
 
+        if language.startswith("ru"):
+            await _announce(hass, satellite, _ru_message(
+                "ask_edit_done", text=reminder.text, when=_ru_moment(reminder.due)))
+            return
         every = f" {reminder.every_base}" if reminder.recurring else ""
         await _announce(
             hass, satellite,
@@ -1439,7 +1645,8 @@ async def _ask_then_edit(hass, manager, satellite: str, reminder_id: str,
 
 
 async def _confirm_then_cancel(hass, manager, satellite: str, matches, question: str,
-                               skip: tuple[str, str] | None = None) -> None:
+                               skip: tuple[str, str] | None = None,
+                               language: str = "en") -> None:
     """Ask on the satellite, and cancel only on yes.
 
     Runs detached from the turn that started it, because ask_question opens a new
@@ -1451,6 +1658,11 @@ async def _confirm_then_cancel(hass, manager, satellite: str, matches, question:
         await asyncio.sleep(ASK_SETTLE)
         confirmed = False
         try:
+            if language.startswith("ru"):
+                from .voice_ru import YES_SENTENCES as positive
+                from .voice_ru import NO_SENTENCES as negative
+            else:
+                positive, negative = YES_SENTENCES, NO_SENTENCES
             answer = await hass.services.async_call(
                 "assist_satellite",
                 "ask_question",
@@ -1458,8 +1670,8 @@ async def _confirm_then_cancel(hass, manager, satellite: str, matches, question:
                     "entity_id": satellite,
                     "question": question,
                     "answers": [
-                        {"id": "yes", "sentences": YES_SENTENCES},
-                        {"id": "no", "sentences": NO_SENTENCES},
+                        {"id": "yes", "sentences": positive},
+                        {"id": "no", "sentences": negative},
                     ],
                 },
                 blocking=True,
@@ -1475,7 +1687,9 @@ async def _confirm_then_cancel(hass, manager, satellite: str, matches, question:
             _LOGGER.info("reminders: not confirmed (%s), nothing canceled", err)
 
         if not confirmed:
-            await _announce(hass, satellite, "Alright, not canceled.")
+            await _announce(hass, satellite,
+                            _ru_message("not_canceled") if language.startswith("ru")
+                            else "Alright, not canceled.")
             return
 
         if skip is not None:
@@ -1484,14 +1698,15 @@ async def _confirm_then_cancel(hass, manager, satellite: str, matches, question:
             # them, and only the exhausted ones go.
             needle, scope = skip
             result = manager.skip(needle, scope)
-            await _announce(hass, satellite, _skip_speech(result, scope, dt_util.now()))
+            await _announce(hass, satellite, _skip_speech(
+                result, scope, dt_util.now(), language))
             return
 
         # Re-read by id: the question took a few seconds, in which a reminder could
         # have fired and advanced or gone.
         live = [r for r in matches if r.id in manager.store.reminders]
         count = manager.cancel_reminders(live)
-        await _announce(hass, satellite, _canceled_speech(count))
+        await _announce(hass, satellite, _canceled_speech(count, language))
     except Exception:  # noqa: BLE001 - a detached task must not die silently
         # Fails CLOSED: anything unexpected leaves every reminder in place.
         _LOGGER.exception("reminders: confirmation failed, nothing canceled")
@@ -1506,8 +1721,20 @@ async def _announce(hass, satellite: str, message: str) -> None:
     )
 
 
-def _skip_speech(result: dict, scope: str, now: datetime) -> str:
+def _skip_speech(result: dict, scope: str, now: datetime, language: str = "en") -> str:
     """What a skip says afterwards. A function so the detached confirmation can say it too."""
+    if language.startswith("ru"):
+        if result["success"] == RESULT_OK:
+            if result.get("ended"):
+                return _ru_message("skip_end")
+            if scope == "week":
+                return _ru_message("skip_week", count=result.get("number", 0))
+            return _ru_message("skip_success")
+        if result["success"] == RESULT_NONE_LEFT:
+            return _ru_message("skip_none_left")
+        if result["success"] == RESULT_NOT_RECURRING:
+            return _ru_message("skip_not_recurring")
+        return _ru_message("skip_missing")
     if result["success"] == RESULT_OK:
         # "the rest of 'em stay put" is a lie when there was no rest - skipping the last
         # occurrence exhausts the rule and the reminder is gone.
@@ -1537,7 +1764,11 @@ def _skip_speech(result: dict, scope: str, now: datetime) -> str:
     return "Beg pardon, I couldn't find a repeatin' reminder like that."
 
 
-def _canceled_speech(count: int) -> str:
+def _canceled_speech(count: int, language: str = "en") -> str:
+    if language.startswith("ru"):
+        return _ru_message("cancel_none" if count == 0 else
+                           "cancel_one" if count == 1 else "cancel_many",
+                           **({"count": count} if count > 1 else {}))
     if count == 0:
         return "Beg pardon, I couldn't find that one after all."
     if count == 1:
@@ -1582,7 +1813,7 @@ class CancelReminderIntent(ReminderIntent):
         if refusal:
             return self._say(intent_obj, refusal)
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
         # Whether a guess is allowed depends on whether it will be read back. A
         # confirmation names the match and waits for a yes, so a near-miss there is
@@ -1594,19 +1825,87 @@ class CancelReminderIntent(ReminderIntent):
         satellite = self._satellite(hass, manager, intent_obj)
         matches = self._matches(manager, intent_obj, loose=satellite is not None and will_confirm)
         if not matches:
-            return self._say(intent_obj, self.not_found)
+            return self._say(intent_obj, _ru_message("not_found") if _is_ru(intent_obj)
+                             else self.not_found)
+        # "Cancel the milk reminder" is singular, even if several records have
+        # identical titles. Never turn a single-item command into a bulk delete.
+        # Cancel-by-time disambiguates records; CancelAll is an explicit action.
+        if len(matches) > 1:
+            return self._say(intent_obj,
+                             _ru_message("cancel_ambiguous", count=len(matches))
+                             if _is_ru(intent_obj) else
+                             f"I found {len(matches)} matching reminders. Please specify which one; nothing was canceled.")
 
         now = dt_util.now()
         if satellite is None or not will_confirm:
             # Typed Assist, or a speaker that cannot hold a conversation. There is
             # nowhere to put a question, so cancel and answer in text.
-            return self._say(intent_obj, _canceled_speech(manager.cancel_reminders(matches)))
+            return self._say(intent_obj, _canceled_speech(
+                manager.cancel_reminders(matches),
+                _intent_language(intent_obj, hass)))
 
+        question = ( _ru_message("confirm_cancel", text=matches[0].text)
+                     if _is_ru(intent_obj) and len(matches) == 1
+                     else (f"Отменить несколько напоминаний ({len(matches)})? Подтверждаете?"
+                           if _is_ru(intent_obj) else self._question(matches, now)) )
         hass.async_create_background_task(
-            _confirm_then_cancel(hass, manager, satellite, matches, self._question(matches, now)),
+            _confirm_then_cancel(
+                hass, manager, satellite, matches, question,
+                language=_intent_language(intent_obj, hass)),
             name="reminders_confirm_cancel",
         )
         # Silence: the detached task above owns everything the user will hear.
+        return self._say(intent_obj, "")
+
+
+class CancelAllRemindersIntent(ReminderIntent):
+    """Explicit mass cancellation with mandatory live verbal confirmation.
+
+    Unlike single-reminder cancellation, NEVER silently remove all reminders
+    from typed Assist/REST or if the satellite cannot ask a second question.
+    The confirmation setting cannot disable this safeguard. A shared speaker
+    must identify one owner before any mass cancellation can proceed.
+    """
+
+    intent_type = "CustomReminderCancelAll"
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        hass = intent_obj.hass
+        language = _intent_language(intent_obj, hass)
+        russian = language.startswith("ru")
+
+        manager, refusal, ambiguous = self._routed_manager(hass, intent_obj)
+        if refusal:
+            return self._say(intent_obj, refusal)
+        if ambiguous:
+            return self._say(intent_obj,
+                             _ru_message("cancel_all_ambiguous") if russian
+                             else "Please specify which reminder list to clear. Nothing was deleted.")
+        if manager is None:
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
+
+        # Snapshot only this list. Anything created after the question is
+        # never accidentally swept up by a later yes.
+        matches = list(manager.store.reminders.values())
+        if not matches:
+            return self._say(intent_obj,
+                             _ru_message("cancel_all_empty") if russian
+                             else "There are no reminders in that list to remove.")
+
+        satellite = self._satellite(hass, manager, intent_obj)
+        if satellite is None:
+            return self._say(intent_obj,
+                             _ru_message("cancel_all_no_confirmation") if russian
+                             else "Deleting all reminders requires a live satellite confirmation. Nothing was deleted.")
+
+        question = (_ru_message("cancel_all_question", name=manager.name,
+                                count=len(matches)) if russian
+                    else f"Delete all {len(matches)} reminders from {manager.name}'s list, including recurring ones? Answer yes or no.")
+        hass.async_create_background_task(
+            _confirm_then_cancel(hass, manager, satellite, matches, question,
+                                 language=language),
+            name="reminders_confirm_cancel_all",
+        )
         return self._say(intent_obj, "")
 
 
@@ -1620,10 +1919,10 @@ class CancelReminderAtIntent(CancelReminderIntent):
         when = when_at_slots(dt_util.now(), intent_obj.slots)
         if when is None:
             return None
-        # By time it takes the ONE row it means. The YAML version deleted over a
-        # +/-2 minute window, so two reminders in the same minute both died.
-        found = manager.find_at(when)
-        return found[:1]
+        # Do not silently pick the first of several reminders at the SAME
+        # requested time. The singular cancel handler requires exactly one
+        # match, and asks for clarification otherwise.
+        return manager.find_at(when)
 
 
 # ---------------------------------------------------------------- list, fallback
@@ -1642,7 +1941,17 @@ class ListRemindersIntent(ReminderIntent):
         upcoming = manager.store.upcoming()
         who = self._whose(hass, manager)
         if not upcoming:
-            return f"{who} ain't got any reminders set." if who else "You ain't got any reminders set."
+            return _ru_message("no_reminders") if _is_ru(intent_obj) else (
+                f"{who} ain't got any reminders set." if who else "You ain't got any reminders set.")
+        if _is_ru(intent_obj):
+            now = dt_util.now()
+            parts = [_ru_message("list_item", text=r.text,
+                                 when=_ru_moment(r.due, include_year=r.due.year != now.year))
+                     for r in upcoming[:self.LIMIT]]
+            header = _ru_message("list_header", count=len(upcoming))
+            if len(upcoming) > self.LIMIT:
+                header += " " + _ru_message("first_five")
+            return f"{header} {'. '.join(parts)}."
         now = dt_util.now()
         parts = [describe(r, now) for r in upcoming[: self.LIMIT]]
         count = len(upcoming)
@@ -1654,23 +1963,27 @@ class ListRemindersIntent(ReminderIntent):
         return f"{head}: {'; '.join(parts)}."
 
 
-def _period(now: datetime, kind: str) -> tuple[datetime, datetime] | None:
-    """A named period as a (start, end) pair.
-
-    "this week" ends on Saturday, matching what skip already means by it - two phrasings
-    of the same word must not disagree about which days they cover.
-    """
+def _period(now: datetime, kind: str, *, week_start: int = 6) -> tuple[datetime, datetime] | None:
+    """Return inclusive bounds using the requested first day of the week."""
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of = lambda d: d.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    def end_of(day: datetime) -> datetime:
+        return day.replace(hour=23, minute=59, second=59, microsecond=0)
+
     if kind == "today":
         return now, end_of(day_start)
-    if kind == "tomorrow":
-        nxt = day_start + timedelta(days=1)
-        return nxt, end_of(nxt)
+    if kind in ("tomorrow", "day_after_tomorrow"):
+        day = day_start + timedelta(days=1 if kind == "tomorrow" else 2)
+        return day, end_of(day)
+    if kind == "weekend":
+        if now.weekday() >= 5:
+            return now, end_of(day_start + timedelta(days=6 - now.weekday()))
+        start = day_start + timedelta(days=5 - now.weekday())
+        return start, end_of(start + timedelta(days=1))
     if kind == "week":
-        return now, end_of(day_start + timedelta(days=(5 - now.weekday()) % 7))
+        return now, end_of(day_start + timedelta(days=(week_start - 1 - now.weekday()) % 7))
     if kind == "nextweek":
-        start = day_start + timedelta(days=(6 - now.weekday()) % 7 or 7)
+        start = day_start + timedelta(days=(week_start - now.weekday()) % 7 or 7)
         return start, end_of(start + timedelta(days=6))
     if kind == "month":
         return now, end_of(_add_months(day_start.replace(day=1), 1) - timedelta(days=1))
@@ -1678,6 +1991,13 @@ def _period(now: datetime, kind: str) -> tuple[datetime, datetime] | None:
         start = _add_months(day_start.replace(day=1), 1)
         return start, end_of(_add_months(start, 1) - timedelta(days=1))
     return None
+
+
+def _weekday_window(now: datetime, weekday: int) -> tuple[datetime, datetime]:
+    day = now + timedelta(days=(weekday - now.weekday()) % 7)
+    start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = day.replace(hour=23, minute=59, second=59, microsecond=0)
+    return max(start, now), end
 
 
 class FindRemindersIntent(ReminderIntent):
@@ -1696,19 +2016,35 @@ class FindRemindersIntent(ReminderIntent):
         window = None
         label = ""
         if kind := _text(slots, "when_kind"):
-            window = _period(now, kind)
+            window = _period(now, kind, week_start=0 if _is_ru(intent_obj) else 6)
             label = {"today": " today", "tomorrow": " tomorrow", "week": " this week",
                      "nextweek": " next week", "month": " this month",
                      "nextmonth": " next month"}.get(kind, "")
         elif (weekday := _int(slots, "weekday")) is not None:
-            start = (now + timedelta(days=(weekday - now.weekday()) % 7)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            window = (max(start, now), start.replace(hour=23, minute=59, second=59))
+            window = _weekday_window(now, weekday)
             label = f" on {DAY_NAMES[weekday]}"
 
         start, end = window if window else (None, None)
         found = manager.search(needle, start, end)
+        if _is_ru(intent_obj):
+            if not found:
+                return _ru_message("find_empty")
+            ordered = sorted(
+                ((occurrences[0] if occurrences else reminder.due, reminder, occurrences)
+                 for reminder, occurrences in found),
+                key=lambda match: match[0],
+            )
+            parts = []
+            for when, reminder, occurrences in ordered[:self.LIMIT]:
+                item = _ru_message("list_item", text=reminder.text,
+                                   when=_ru_moment(when, include_year=when.year != now.year))
+                if occurrences and len(occurrences) > 1:
+                    item += ", " + _ru_message("more_occurrences", count=len(occurrences) - 1)
+                parts.append(item)
+            header = _ru_message("find_header", count=len(found))
+            if len(found) > self.LIMIT:
+                header += " " + _ru_message("first_five")
+            return f"{header} {'. '.join(parts)}."
         who = self._whose(hass, manager)
         if not found:
             empty = f"{who}'s got nothin'" if who else "You've got nothin'"
@@ -1747,16 +2083,21 @@ class EditReminderIntent(ReminderIntent):
         if refusal:
             return self._say(intent_obj, refusal)
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
         slots = intent_obj.slots
         needle = _text(slots, "reminder_text")
         if not needle:
-            return self._say(intent_obj, "Beg pardon, which reminder?")
+            return self._say(intent_obj, _ru_message("edit_which") if _is_ru(intent_obj)
+                             else "Beg pardon, which reminder?")
         matches = manager.store.find(needle)
         if not matches:
-            return self._say(intent_obj, "Beg pardon, I don't have a reminder about that.")
+            return self._say(intent_obj, _ru_message("edit_not_found") if _is_ru(intent_obj)
+                             else "Beg pardon, I don't have a reminder about that.")
         if len(matches) > 1:
+            if _is_ru(intent_obj):
+                return self._say(intent_obj, _ru_message(
+                    "edit_ambiguous", count=len(matches)))
             # Editing the wrong one is quietly wrong, and nothing reads it back the way
             # canceling does. Ask rather than guess.
             return self._say(
@@ -1785,6 +2126,10 @@ class EditReminderIntent(ReminderIntent):
                 # The example names the list when there is more than one: "move MY ...
                 # reminder" is exactly the phrasing that would come back asking whose,
                 # and a worked example has to be one that works.
+                if _is_ru(intent_obj):
+                    return self._say(intent_obj, _ru_message(
+                        "edit_one_turn", text=reminder.text,
+                        when=_ru_moment(reminder.due)))
                 name = self._whose(hass, manager)
                 whose = f"{name}'s" if name else "my"
                 return self._say(
@@ -1796,7 +2141,8 @@ class EditReminderIntent(ReminderIntent):
                     f"{reminder.text} reminder to 6 pm'.",
                 )
             hass.async_create_background_task(
-                _ask_then_edit(hass, manager, satellite, reminder.id, keep),
+                _ask_then_edit(hass, manager, satellite, reminder.id, keep,
+                               _intent_language(intent_obj, hass)),
                 name="reminders_ask_edit",
             )
             return self._say(intent_obj, "")
@@ -1804,8 +2150,14 @@ class EditReminderIntent(ReminderIntent):
         try:
             if _slot(slots, "stop_repeating") is not None:
                 if not reminder.recurring:
-                    return self._say(intent_obj, f"{reminder.text} doesn't repeat anyway.")
+                    return self._say(intent_obj, _ru_message(
+                        "edit_not_recurring", text=reminder.text) if _is_ru(intent_obj)
+                        else f"{reminder.text} doesn't repeat anyway.")
                 manager.edit(reminder, rrule="")
+                if _is_ru(intent_obj):
+                    return self._say(intent_obj, _ru_message(
+                        "edit_stop_repeat", text=reminder.text,
+                        when=_ru_moment(reminder.due)))
                 return self._say(
                     intent_obj,
                     f"Alright, {reminder.text} won't repeat. It's still set for "
@@ -1815,9 +2167,13 @@ class EditReminderIntent(ReminderIntent):
             if _slot(slots, "recur") is not None or _slot(slots, "recur_kind") is not None:
                 found = recurrence_from_slots(now, slots, "", keep)
                 if found is None:
-                    return self._say(intent_obj, "Beg pardon, I couldn't work out the new pattern.")
+                    return self._say(intent_obj, _ru_message("edit_bad_repeat") if _is_ru(intent_obj)
+                                     else "Beg pardon, I couldn't work out the new pattern.")
                 when, rrule, every = found
                 manager.edit(reminder, due=when, rrule=rrule)
+                if _is_ru(intent_obj):
+                    return self._say(intent_obj, _ru_message(
+                        "edit_recurring", text=reminder.text, when=_ru_moment(when)))
                 return self._say(
                     intent_obj,
                     f"Alright, {reminder.text} now repeats {every} at {clock(when)}, "
@@ -1826,9 +2182,14 @@ class EditReminderIntent(ReminderIntent):
 
             when = when_from_slots(now, slots, keep)
             if when is None:
-                return self._say(intent_obj, "Beg pardon, I couldn't work out when.")
+                return self._say(intent_obj, _ru_message("no_time") if _is_ru(intent_obj)
+                                 else "Beg pardon, I couldn't work out when.")
             was_recurring = reminder.recurring
             manager.edit(reminder, due=when)
+            if _is_ru(intent_obj):
+                return self._say(intent_obj, _ru_message(
+                    "edit_moved_series" if was_recurring else "edit_moved",
+                    text=reminder.text, when=_ru_moment(when)))
             tail = " Every one of 'em moves." if was_recurring else ""
             return self._say(
                 intent_obj,
@@ -1836,9 +2197,11 @@ class EditReminderIntent(ReminderIntent):
                 f"{day_phrase(when, now)}.{tail}",
             )
         except PastDue:
-            return self._say(intent_obj, "That time has already passed.")
+            return self._say(intent_obj, _ru_message("past_time") if _is_ru(intent_obj)
+                             else "That time has already passed.")
         except InvalidRule:
-            return self._say(intent_obj, "Beg pardon, I can't repeat one that often.")
+            return self._say(intent_obj, _ru_message("repeat_invalid") if _is_ru(intent_obj)
+                             else "Beg pardon, I can't repeat one that often.")
 
 
 class NextReminderIntent(ReminderIntent):
@@ -1853,7 +2216,13 @@ class NextReminderIntent(ReminderIntent):
         upcoming = manager.store.upcoming()
         who = self._whose(hass, manager)
         if not upcoming:
-            return f"{who} ain't got any reminders set." if who else "You ain't got any reminders set."
+            return _ru_message("no_reminders") if _is_ru(intent_obj) else (
+                f"{who} ain't got any reminders set." if who else "You ain't got any reminders set.")
+        if _is_ru(intent_obj):
+            next_reminder = upcoming[0]
+            when = next_reminder.due
+            return _ru_message("next_reminder", text=next_reminder.text,
+                               when=_ru_moment(when, include_year=when.year != dt_util.now().year))
         whose = f"{who}'s next reminder" if who else "Your next reminder"
         return f"{whose} is {describe(upcoming[0], dt_util.now())}."
 
@@ -1870,6 +2239,15 @@ class CountRemindersIntent(ReminderIntent):
         # The same number todo.reminders shows as its state, counted from the store so
         # that renaming the entity cannot break the answer.
         count = len(manager.store.reminders)
+        if _is_ru(intent_obj):
+            window = None
+            if kind := _text(intent_obj.slots, "when_kind"):
+                window = _period(dt_util.now(), kind, week_start=0)
+            elif (weekday := _int(intent_obj.slots, "weekday")) is not None:
+                window = _weekday_window(dt_util.now(), weekday)
+            if window is not None:
+                count = len(manager.search(None, *window))
+            return _ru_message("reminder_count", count=count)
         who = self._whose(hass, manager)
         subject = f"{who} currently has" if who else "You currently have"
         if count == 0:
@@ -1894,7 +2272,8 @@ class ReminderFallbackIntent(ReminderIntent):
 
         text = _task_only(_text(intent_obj.slots, "fallback_rest"))
         if not text:
-            return self._say(intent_obj, "No comprende, partner.")
+            return self._say(intent_obj, _ru_message("fallback_empty") if _is_ru(intent_obj)
+                             else "No comprende, partner.")
 
         if ambiguous:
             # Neither whose nor when was given. Both get asked, in that order - the
@@ -1903,15 +2282,44 @@ class ReminderFallbackIntent(ReminderIntent):
             satellite = self._any_satellite(hass, _lists(hass), intent_obj)
             if satellite is not None:
                 hass.async_create_background_task(
-                    _ask_whose_then_when(hass, self, satellite, _lists(hass), text),
+                    _ask_whose_then_when(
+                        hass, self, satellite, _lists(hass), text,
+                        _intent_language(intent_obj, hass),
+                    ),
                     name="reminders_ask_whose_when",
                 )
                 return self._say(intent_obj, "")
         if manager is None:
-            return self._say(intent_obj, self._not_ready(hass))
+            return self._say(intent_obj, self._not_ready(hass, intent_obj))
 
-        question = ("When should this reminder occur? "
-                    f"Default is {self._default_time_phrase(manager)}.")
+        # Hassil may prefer the broad fallback when the user puts an owner
+        # after a relative time ("напомни о X через два часа для Марии").
+        # The owner's suffix was removed before routing. Interpret only a
+        # valid Russian time and non-empty task; never default a missing time.
+        if _is_ru(intent_obj):
+            now = dt_util.now()
+            title, due, rrule = _read_time(
+                text, now, self._default_time(manager), "ru")
+            if title and due:
+                if due <= now:
+                    return self._say(intent_obj, _ru_message("past_time"))
+                try:
+                    reminder = manager.schedule(
+                        title, due, rrule,
+                        language=_intent_language(intent_obj, hass))
+                except PastDue:
+                    return self._say(intent_obj, _ru_message("past_time"))
+                except InvalidRule:
+                    return self._say(intent_obj, _ru_message("repeat_invalid"))
+                return self._say(intent_obj, _ru_message(
+                    "recurring_created" if rrule else "created",
+                    text=reminder.text, when=_ru_moment(reminder.due, include_year=False)))
+
+        question = (_ru_message(
+            "ask_when", time="%02d:%02d" % tuple(self._default_time(manager)))
+            if _is_ru(intent_obj) else
+            ("When should this reminder occur? "
+             f"Default is {self._default_time_phrase(manager)}."))
         satellite = self._satellite(hass, manager, intent_obj)
         if satellite is None:
             # Nothing to ask ON, so there is no turn to answer into. The question is
@@ -1921,6 +2329,7 @@ class ReminderFallbackIntent(ReminderIntent):
             _ask_when_then_schedule(
                 hass, manager, satellite, text, question,
                 self._default_time(manager), self._whose(hass, manager) or "you",
+                _intent_language(intent_obj, hass),
             ),
             name="reminders_ask_when",
         )
@@ -1936,6 +2345,7 @@ HANDLERS = [
     RemindAgainIntent,
     SkipReminderIntent,
     CancelReminderIntent,
+    CancelAllRemindersIntent,
     CancelReminderAtIntent,
     ListRemindersIntent,
     NextReminderIntent,

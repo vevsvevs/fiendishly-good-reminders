@@ -252,7 +252,7 @@ class ReminderManager:
         if reminder is None:
             return
         fired_for = reminder.due
-        await self.deliver(reminder.text)
+        await self.deliver(reminder.text, language=reminder.language)
         reminder.last_fired = fired_for
         self.store.record_fired(reminder, fired_for)
 
@@ -299,7 +299,7 @@ class ReminderManager:
             return True, CHIME_URL
         return True, CHIME_URL
 
-    async def deliver(self, text: str) -> None:
+    async def deliver(self, text: str, language: str | None = None) -> None:
         """Speak it, or push it to a phone.
 
         Degrades rather than failing: with no satellites it notifies, with no notify
@@ -309,12 +309,18 @@ class ReminderManager:
         targets = self._opt(CONF_ANNOUNCE_TARGETS) or []
         notify_service = self._opt(CONF_NOTIFY_SERVICE)
         play, sound = self._chime()
-        text = second_person(text)
         # "Reminder for John: take the trash out" once a second list exists. With one
         # list the name is noise - there is nobody else it could be for - and every
         # reminder anyone has already lived with would suddenly start announcing itself
         # differently.
-        header = f"Reminder for {self.name}" if len(all_managers(self.hass)) > 1 else "Reminder"
+        locale = (language or getattr(self.hass.config, "language", "en") or "en").lower()
+        if locale.startswith("ru"):
+            from .voice_ru import delivery_header, second_person as second_person_ru
+            text = second_person_ru(text)
+            header = delivery_header(self.name if len(all_managers(self.hass)) > 1 else None)
+        else:
+            text = second_person(text)
+            header = f"Reminder for {self.name}" if len(all_managers(self.hass)) > 1 else "Reminder"
 
         if targets and self._audible():
             data = {"message": f"{header}: {text}"}
@@ -398,14 +404,15 @@ class ReminderManager:
     # problem in reverse: the intent, the script and the confirmation each re-derived
     # the same lookup in Jinja, and fixing one left the others wrong.
 
-    def schedule(self, text: str, due: datetime, rrule: str | None = None) -> Reminder:
+    def schedule(self, text: str, due: datetime, rrule: str | None = None,
+                 language: str | None = None) -> Reminder:
         """Add a reminder and arm it. Raises InvalidRule or PastDue."""
         due = dt_util.as_local(due) if due.tzinfo else due.replace(
             tzinfo=dt_util.DEFAULT_TIME_ZONE
         )
         if due <= dt_util.now():
             raise PastDue("That time has already passed")
-        reminder = self.store.add(text, due, rrule)
+        reminder = self.store.add(text, due, rrule, language=language)
         self.arm(reminder)
         self._notify()
         return reminder
@@ -734,14 +741,26 @@ def sole_manager(hass: HomeAssistant):
 
 
 def manager_named(hass: HomeAssistant, target: str):
-    """Find a list by name or by entry id. Case- and possessive-insensitive."""
-    wanted = (target or "").strip().casefold().rstrip("'s").strip()
-    for manager in all_managers(hass):
-        if manager.entry.entry_id == target:
-            return manager
-        if manager.name.casefold() == wanted or manager.name.casefold().startswith(wanted):
-            return manager
-    return None
+    """Resolve only a uniquely identified owner (including Russian name cases).
+
+    A prefix is NOT sufficient: with John and Johnny configured, "Joh"
+    must not guess whose reminders to alter. The old rstrip("'s") also
+    damaged names ending in s; strip only a complete English possessive.
+    """
+    from .voice_ru import person_forms
+
+    value = (target or "").strip()
+    if not value:
+        return None
+    managers = all_managers(hass)
+    by_id = [m for m in managers if m.entry.entry_id == value]
+    if len(by_id) == 1:
+        return by_id[0]
+    wanted = value.casefold().replace("ё", "е")
+    if wanted.endswith(("'s", "’s")):
+        wanted = wanted[:-2].strip()
+    candidates = [m for m in managers if wanted in person_forms(m.name)]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _resolve(hass: HomeAssistant, call: ServiceCall):
