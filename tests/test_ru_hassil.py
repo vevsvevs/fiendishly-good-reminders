@@ -19,11 +19,15 @@ SENTENCES = ROOT / "custom_sentences" / "ru" / "reminders.yaml"
 data = yaml.safe_load(SENTENCES.read_text(encoding="utf-8"))
 assert data["language"] == "ru"
 base = deepcopy(get_intents("ru"))
+# Mirror Home Assistant's custom-sentence priority as well as its merge.
+CUSTOM_SENTENCE = "hass_custom_sentence"
 for key, value in data.get("lists", {}).items():
     base.setdefault("lists", {})[key] = value
 for key, value in data.get("expansion_rules", {}).items():
     base.setdefault("expansion_rules", {})[key] = value
 for key, value in data.get("intents", {}).items():
+    for sentence_group in value["data"]:
+        sentence_group.setdefault("metadata", {})[CUSTOM_SENTENCE] = True
     base.setdefault("intents", {}).setdefault(key, {"data": []})["data"].extend(value["data"])
 grammar = Intents.from_dict(base)
 # In the live handler an owner swallowed by {reminder_text} / {fallback_rest}
@@ -41,7 +45,114 @@ lists = {
 }
 
 CASES = [
+    # Explicit FGR verbs win over the built-in delayed-command template.
+    ("напомни покормить малыша через четыре часа тридцать минут", "CustomReminderSet",
+     {"reminder_text": "покормить малыша", "rel_num": 4, "rel_unit": "hours",
+      "rel_num2": 30, "rel_unit2": "minutes"}),
+    ("напомни покормить малыша через четыре часа и тридцать минут", "CustomReminderSet",
+     {"reminder_text": "покормить малыша", "rel_num": 4, "rel_num2": 30}),
+    ("через четыре часа тридцать минут напомни покормить малыша", "CustomReminderSet",
+     {"reminder_text": "покормить малыша", "rel_num": 4, "rel_num2": 30}),
+    ("напомни через 1 день 2 часа 3 минуты проверить отчёт", "CustomReminderSet",
+     {"reminder_text": "проверить отчёт", "rel_num": 1, "rel_unit": "days",
+      "rel_num2": 2, "rel_unit2": "hours", "rel_num3": 3, "rel_unit3": "minutes"}),
+    ("напомни проверить чайник спустя две минуты десять секунд", "CustomReminderSet",
+     {"reminder_text": "проверить чайник", "rel_num": 2, "rel_unit": "minutes",
+      "rel_num2": 10, "rel_unit2": "seconds"}),
+    ("напомни Марии про молоко через час и двадцать минут", "CustomReminderSet",
+     {"reminder_text": "молоко", "person": "Марии", "rel_unit": "hours",
+      "rel_num2": 20, "rel_unit2": "minutes"}),
+    ("напомни купить молоко через четыре часа тридцать минут для Марии", "CustomReminderFallback",
+     {"person": "Марии", "fallback_rest": "купить молоко через четыре часа тридцать минут"}),
+    ("напомни ещё раз через час и минуту", "CustomReminderAgain",
+     {"rel_unit": "hours", "rel_unit2": "minutes"}),
+    ("через четыре часа тридцать минут включи свет в гостиной", "HassStartTimer",
+     {"hours": 4, "minutes": 30, "conversation_command": "включи свет в гостиной"}),
+    ("поставь таймер на четыре часа тридцать минут", "HassStartTimer",
+     {"hours": 4, "minutes": 30}),
+    # Russian case endings and close variants of the phrase seen in Assist.
+    ("расскажи о напоминаниях", "CustomReminderList", {}),
+    ("расскажи мне о моих напоминаниях", "CustomReminderList", {}),
+    ("расскажите обо всех моих напоминаниях", "CustomReminderList", {}),
+    ("скажи об активных напоминаниях", "CustomReminderList", {}),
+    ("мои напоминания пожалуйста", "CustomReminderList", {}),
+    ("расскажи о напоминаниях у меня", "CustomReminderList", {}),
+    ("расскажи о напоминаниях Виталия", "CustomReminderList", {"person": "Виталия"}),
+    ("расскажи мне о напоминаниях у Марии", "CustomReminderList", {"person": "Марии"}),
+    ("расскажи о напоминаниях на завтра", "CustomReminderFind", {"when_kind": "tomorrow"}),
+    ("скажи о моих напоминаниях на сегодня", "CustomReminderFind", {"when_kind": "today"}),
+    ("расскажи о завтрашних напоминаниях", "CustomReminderFind", {"when_kind": "tomorrow"}),
+    ("прочитай сегодняшние напоминания", "CustomReminderFind", {"when_kind": "today"}),
+    ("расскажи какие у меня есть напоминания на выходные", "CustomReminderFind", {"when_kind": "weekend"}),
+    ("расскажи о напоминаниях у Марии на завтра", "CustomReminderFind", {"person": "Марии", "when_kind": "tomorrow"}),
+    ("расскажи о напоминаниях на завтра у Марии", "CustomReminderFind", {"person": "Марии", "when_kind": "tomorrow"}),
+    ("расскажи о напоминаниях Виталия на завтра", "CustomReminderFind", {"person": "Виталия", "when_kind": "tomorrow"}),
+    ("расскажи о завтрашних напоминаниях Виталия", "CustomReminderFind", {"person": "Виталия", "when_kind": "tomorrow"}),
+    ("расскажи о напоминаниях Виталия в пятницу", "CustomReminderFind", {"person": "Виталия", "weekday": 4}),
+    ("расскажи о напоминаниях у меня на завтра", "CustomReminderFind", {"when_kind": "tomorrow"}),
+    ("расскажи о напоминаниях в пятницу", "CustomReminderFind", {"weekday": 4}),
+    ("скажи сколько у меня осталось напоминаний", "CustomReminderCount", {}),
+    ("скажи сколько всего напоминаний у Марии", "CustomReminderCount", {"person": "Марии"}),
+    ("расскажи какие у Марии напоминания на завтра", "CustomReminderFind", {"person": "Марии", "when_kind": "tomorrow"}),
+    ("расскажи какие у Марии напоминания", "CustomReminderList", {"person": "Марии"}),
+    ("скажи сколько у Марии напоминаний", "CustomReminderCount", {"person": "Марии"}),
+    ("расскажи сколько у Марии напоминаний на завтра", "CustomReminderCount", {"person": "Марии", "when_kind": "tomorrow"}),
+    ("расскажи о ближайшем напоминании", "CustomReminderNext", {}),
+    ("скажи о моём следующем напоминании", "CustomReminderNext", {}),
+    ("расскажи о ближайшем напоминании Виталия", "CustomReminderNext", {"person": "Виталия"}),
+    ("когда сработает ближайшее напоминание", "CustomReminderNext", {}),
+    ("когда у меня сработает следующее напоминание", "CustomReminderNext", {}),
+    ("скажи во сколько сработает ближайшее напоминание", "CustomReminderNext", {}),
+    ("расскажи о напоминании про врача", "CustomReminderFind", {"reminder_text": "врача"}),
+    ("расскажи о напоминании о встрече у Марии", "CustomReminderFind", {"reminder_text": "встрече", "person": "Марии"}),
     # Natural spoken reads, with exact scoping checked below.
+    # Reminder status questions with explicit grammatical case and intent.
+    ("ну что там с напоминаниями", "CustomReminderList", {}),
+    ("расскажите мне что там с моим напоминанием", "CustomReminderList", {}),
+    ("у меня что с напоминаниями", "CustomReminderList", {}),
+    ("что с напоминаниями у меня", "CustomReminderList", {}),
+    ("как там дела с моими напоминаниями", "CustomReminderList", {}),
+    ("как обстоят дела с напоминаниями", "CustomReminderList", {}),
+    ("что там по моим напоминаниям", "CustomReminderList", {}),
+    ("что по моему напоминанию", "CustomReminderList", {}),
+    ("как насчет моего напоминания", "CustomReminderList", {}),
+    ("что по поводу напоминаний", "CustomReminderList", {}),
+    ("что известно о моём напоминании", "CustomReminderList", {}),
+    ("напоминания ещё остались", "CustomReminderList", {}),
+    ("как насчёт напоминаний на завтра", "CustomReminderFind", {"when_kind": "tomorrow"}),
+    ("как насчёт напоминания про врача", "CustomReminderFind", {"reminder_text": "врача"}),
+    ("как насчёт моих напоминаний", "CustomReminderList", {}),
+    ("какой статус у моего напоминания", "CustomReminderList", {}),
+    ("остались ли ещё у меня напоминания", "CustomReminderList", {}),
+    ("какие у меня запланированы напоминания", "CustomReminderList", {}),
+    ("что у Марии с напоминанием", "CustomReminderList", {"person": "Марии"}),
+    ("как дела с напоминаниями у Марии", "CustomReminderList", {"person": "Марии"}),
+    ("что по напоминаниям из списка Виталия", "CustomReminderList", {"person": "Виталия"}),
+    ("что с ближайшим напоминанием", "CustomReminderNext", {}),
+    ("как дела с моим следующим напоминанием", "CustomReminderNext", {}),
+    ("что по моему очередному напоминанию", "CustomReminderNext", {}),
+    ("скажи какой статус у моего ближайшего напоминания", "CustomReminderNext", {}),
+    ("что с ближайшим напоминанием у меня", "CustomReminderNext", {}),
+    ("что у Марии с ближайшим напоминанием", "CustomReminderNext", {"person": "Марии"}),
+    ("как дела со следующим напоминанием", "CustomReminderNext", {}),
+    ("что с напоминанием про врача", "CustomReminderFind", {"reminder_text": "врача"}),
+    ("как дела с моим напоминанием о встрече", "CustomReminderFind", {"reminder_text": "встрече"}),
+    ("что там по напоминанию об оплате", "CustomReminderFind", {"reminder_text": "оплате"}),
+    ("какой статус у напоминания про оплату", "CustomReminderFind", {"reminder_text": "оплату"}),
+    ("что с этим напоминанием про врача", "CustomReminderFind", {"reminder_text": "врача"}),
+    ("что у Марии с напоминанием про врача", "CustomReminderFind", {"reminder_text": "врача", "person": "Марии"}),
+    ("что с напоминанием про врача у Марии", "CustomReminderFind", {"reminder_text": "врача", "person": "Марии"}),
+    ("что с напоминанием про врача на завтра", "CustomReminderFind", {"reminder_text": "врача", "when_kind": "tomorrow"}),
+    ("что у меня с напоминанием на сегодня", "CustomReminderFind", {"when_kind": "today"}),
+    ("что по напоминаниям на завтра", "CustomReminderFind", {"when_kind": "tomorrow"}),
+    ("завтра что там с напоминаниями", "CustomReminderFind", {"when_kind": "tomorrow"}),
+    ("что с напоминаниями у меня в пятницу", "CustomReminderFind", {"weekday": 4}),
+    ("что с напоминаниями на сегодня у меня", "CustomReminderFind", {"when_kind": "today"}),
+    ("что с напоминаниями у Марии на сегодня", "CustomReminderFind", {"person": "Марии", "when_kind": "today"}),
+    ("что по напоминаниям на выходные у Марии", "CustomReminderFind", {"person": "Марии", "when_kind": "weekend"}),
+    ("что с напоминанием", "CustomReminderList", {}),
+    ("Что там с моим напоминанием?", "CustomReminderList", {}),
+    ("что у меня с напоминанием", "CustomReminderList", {}),
     ("что у меня с напоминаниями", "CustomReminderList", {}),
     ("что там у меня с напоминаниями", "CustomReminderList", {}),
     ("что у меня из напоминаний", "CustomReminderList", {}),
@@ -199,10 +310,24 @@ CASES = [
 ]
 # Must not be claimed by the reminder grammar:
 NEGATIVE = (
+    "что с таймером",
+    "что по таймеру",
+    "как там дела с моим будильником",
+    "какой статус у следующего таймера",
+    "как насчёт таймеров",
+    "что с задачей про врача",
+    "что с этим",
+    "что там со светом",
+    "что там с моим таймером",
+    "что с будильником",
+    "что с задачами на завтра",
     "что мне нужно сделать завтра",
     "что мне делать на этой неделе",
     "что у меня с таймерами",
     "расскажи про дела на завтра",
+    "расскажи о таймерах",
+    "расскажи о настройках напоминаний",
+    "скажи сколько времени осталось на таймере",
     "перечисли покупки на выходные",
     "поставь таймер на двадцать минут",
     "через четыре с половиной часа включи свет в гостиной",
@@ -221,7 +346,7 @@ NEGATIVE = (
 
 failures = []
 for phrase, expected, slots in CASES:
-    r = recognize_best(phrase, grammar, language="ru", slot_lists=lists, best_slot_name="name")
+    r = recognize_best(phrase, grammar, language="ru", slot_lists=lists, best_slot_name="name", best_metadata_key=CUSTOM_SENTENCE)
     got = r.intent.name if r else None
     vals = {x.name: x.value for x in r.entities_list} if r else {}
     if got and got.startswith("CustomReminder") and "person" not in vals:
@@ -245,7 +370,7 @@ for phrase, expected, slots in CASES:
     else:
         print("PASS", repr(phrase), "=>", expected)
 for phrase in NEGATIVE:
-    r = recognize_best(phrase, grammar, language="ru", slot_lists=lists, best_slot_name="name")
+    r = recognize_best(phrase, grammar, language="ru", slot_lists=lists, best_slot_name="name", best_metadata_key=CUSTOM_SENTENCE)
     got = r.intent.name if r else None
     if got and got.startswith("CustomReminder"):
         failures.append((phrase, got, {}, "not a reminder", {}))

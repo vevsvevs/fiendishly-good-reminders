@@ -640,11 +640,44 @@ def case_llm_schedule_and_exposure():
     assert invalid.error and not visible.scheduled
     result = run(schedule.async_call(h, types.SimpleNamespace(tool_args=args), context))
     assert not result.error and result.data["status"] == "success"
+    assert result.data["speech"] == "Напоминание «покушать» установлено на 6 сентября в 14:01."
     assert visible.scheduled == [("покушать", dt.now() + datetime.timedelta(seconds=60), None, "ru")]
     h.exposed.clear()
     assert tools.async_get_tools(h, context, "assist") is None
 
 check("LLM: schedule and relative time use FGR on the exposed list only", case_llm_schedule_and_exposure)
+
+
+def case_llm_read_speech_matches_local():
+    visible = Manager("Виталий", "visible")
+    pkg.all_managers = lambda hass: [visible]
+    reminder = Rem("покушать", DUE)
+    visible.store.upcoming = lambda: [reminder]
+    occurrence = DUE + datetime.timedelta(days=1, hours=2)
+    visible.search = lambda text, start, end: [(reminder, [occurrence] if start else None)]
+    h = MassHass([])
+    h.exposed = {"sensor.visible_next_reminder"}
+    h.states = {"sensor.visible_next_reminder": object()}
+    context = types.SimpleNamespace(assistant="conversation", language="ru", device_id=None)
+    list_tool = next(t for t in tools._TOOLS if t.name.endswith("__list"))
+    find_tool = next(t for t in tools._TOOLS if t.name.endswith("__find"))
+
+    listed = run(list_tool.async_call(h, types.SimpleNamespace(tool_args={}), context)).data
+    intent = MassIntent(h)
+    assert listed["speech"] == it.ListRemindersIntent()._answer(h, visible, intent)
+    assert listed["next_speech"] == it.NextReminderIntent()._answer(h, visible, intent)
+    assert listed["count_speech"] == it.CountRemindersIntent()._answer(h, visible, intent)
+    assert "«покушать»" in listed["next_speech"] and "17:00" in listed["next_speech"]
+
+    found = run(find_tool.async_call(h, types.SimpleNamespace(tool_args={
+        "text": "покушать", "from": occurrence.isoformat(),
+    }), context)).data
+    assert "«покушать»" in found["speech"] and "8 сентября в 19:00" in found["speech"]
+    assert "17:00" not in found["speech"]
+    assert found["reminders"][0]["due"] == DUE.isoformat()
+
+check("LLM: list, next and count match local speech; search names the matching occurrence",
+      case_llm_read_speech_matches_local)
 
 
 def case_llm_cancel_all_confirmation():
