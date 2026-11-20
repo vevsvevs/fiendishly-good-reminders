@@ -41,6 +41,13 @@ lists = {
 }
 
 CASES = [
+    ("добавь напоминаем", "CustomReminderFallback", {}),
+    ("добавь напоминание", "CustomReminderFallback", {}),
+    ("добавь мне новое напоминание", "CustomReminderFallback", {}),
+    ("поставь напоминание", "CustomReminderFallback", {}),
+    ("напомни", "CustomReminderFallback", {}),
+    ("напомни покушать через одну минуту", "CustomReminderSet",
+     {"reminder_text": "покушать", "rel_num": 1, "rel_unit": "minutes"}),
     # Natural spoken reads, with exact scoping checked below.
     ("что у меня с напоминаниями", "CustomReminderList", {}),
     ("что там у меня с напоминаниями", "CustomReminderList", {}),
@@ -199,6 +206,9 @@ CASES = [
 ]
 # Must not be claimed by the reminder grammar:
 NEGATIVE = (
+    "покушать через одну минуту",
+    "добавь молоко в список покупок",
+    "поставь таймер",
     "что мне нужно сделать завтра",
     "что мне делать на этой неделе",
     "что у меня с таймерами",

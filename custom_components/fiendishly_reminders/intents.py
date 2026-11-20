@@ -1360,8 +1360,7 @@ _RE_DEFAULT_ANSWER = re.compile(r"^\s*(?:the\s+|use\s+the\s+|just\s+)?default\b"
 async def _ask_free(hass, satellite: str, question: str) -> str | None:
     """Ask something open-ended and return what was said, or None for silence.
 
-    No `answers` list: the reply is a time in whatever words the speaker chose, so there
-    is nothing to enumerate and the raw transcript is the whole point.
+    With no preset answers, the satellite returns the raw transcript.
     """
     try:
         answer = await hass.services.async_call(
@@ -2255,6 +2254,47 @@ class CountRemindersIntent(ReminderIntent):
         return f"{subject} {count} reminder{'' if count == 1 else 's'}."
 
 
+async def _ask_for_reminder(hass, handler, satellite: str, manager, managers: list,
+                            language: str) -> None:
+    """Collect a task and time within the local reminder dialogue."""
+    from .voice_ru import NO_SENTENCES
+
+    await asyncio.sleep(ASK_SETTLE)
+    try:
+        if manager is None:
+            manager = await _settle_whose(hass, satellite, managers, _ru_message("ask_whose"), language)
+            if manager is None:
+                await _announce(hass, satellite, _ru_message("ask_whose_failed"))
+                return
+
+        default_time = handler._default_time(manager)
+        question = _ru_message("ask_task_and_time")
+        for _ in range(ASK_REPEATS):
+            said = await _ask_free(hass, satellite, question)
+            if said is not None:
+                if said.casefold().rstrip(" .!?") in NO_SENTENCES:
+                    break
+                now = dt_util.now()
+                text, due, rrule = _read_time(said, now, default_time, language)
+                if text and due is not None:
+                    try:
+                        reminder = manager.schedule(text, due, rrule, language=language)
+                    except PastDue:
+                        question = _ru_message("past_time") + " " + _ru_message("ask_task_and_time")
+                        continue
+                    except InvalidRule:
+                        question = _ru_message("repeat_invalid") + " " + _ru_message("ask_task_and_time")
+                        continue
+                    await _announce(hass, satellite, _ru_message(
+                        "recurring_created" if rrule else "created",
+                        text=reminder.text, when=_ru_moment(reminder.due, include_year=False)))
+                    return
+            question = _ru_message("ask_task_and_time_retry")
+        await _announce(hass, satellite, _ru_message("ask_task_and_time_failed"))
+    except NotImplementedError:
+        await _announce(hass, satellite, _ru_message("ask_task_and_time_one_turn"))
+
+
 class ReminderFallbackIntent(ReminderIntent):
     """Anything reminder-shaped the grammar did not understand.
 
@@ -2272,8 +2312,21 @@ class ReminderFallbackIntent(ReminderIntent):
 
         text = _task_only(_text(intent_obj.slots, "fallback_rest"))
         if not text:
-            return self._say(intent_obj, _ru_message("fallback_empty") if _is_ru(intent_obj)
-                             else "No comprende, partner.")
+            if not _is_ru(intent_obj):
+                return self._say(intent_obj, "No comprende, partner.")
+            managers = _lists(hass)
+            if not managers:
+                return self._say(intent_obj, self._not_ready(hass, intent_obj))
+            satellite = (self._satellite(hass, manager, intent_obj) if manager is not None
+                         else self._any_satellite(hass, managers, intent_obj))
+            if satellite is None:
+                return self._say(intent_obj, _ru_message("ask_task_and_time_one_turn"))
+            hass.async_create_background_task(
+                _ask_for_reminder(hass, self, satellite, manager, managers,
+                                  _intent_language(intent_obj, hass)),
+                name="reminders_ask_task_and_time",
+            )
+            return self._say(intent_obj, "")
 
         if ambiguous:
             # Neither whose nor when was given. Both get asked, in that order - the
