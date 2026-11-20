@@ -37,15 +37,25 @@ _TIMING = {vol.Optional("due"): _TEXT, vol.Optional("delay_seconds"): _DELAY}
 _RANGE = {vol.Optional("from"): _TEXT, vol.Optional("until"): _TEXT}
 
 _PROMPT = (
-    "Use fiendishly_reminders tools for requests about reminders, including follow-up "
-    "answers that give only the task and time. A reminder is distinct from a countdown "
-    "timer. Never substitute a timer or a to-do action for a reminder. If the purpose "
-    "is unclear, ask a question. For relative times supply delay_seconds; for an "
-    "absolute time supply an ISO 8601 datetime in due. Ask if the time is missing. "
-    "Find the exact reminder ID before changing it. Use cancel_all only for an explicit "
-    "request to clear a named list. If a tool reports confirmation_pending, a separate "
-    "voice confirmation owns the outcome. Do not claim that anything was deleted. "
-    "Only report success after the corresponding FGR tool returns success."
+    "Use the fiendishly_reminders tools for the user's reminders. A reminder delivers a "
+    "message about a task at a time; a timer measures a duration. Requests such as "
+    "«напомни», «добавь напоминание», «какие у меня напоминания» or 'remind me to' "
+    "refer to FGR. The words «через минуту» or 'in one minute' can specify either "
+    "operation and do not by themselves make a request a timer. "
+    "Use conversation history to keep the operation from the previous turn. For example, "
+    "if you asked «О чём напомнить?» and the user says «покушать через одну минуту», "
+    "call fiendishly_reminders__schedule with text='покушать' and delay_seconds=60. "
+    "Use FGR rather than timer or to-do tools to perform reminder operations. If the user "
+    "clearly changes the request to a countdown, use the timer tool. If you cannot tell "
+    "whether the user wants a reminder or a timer, ask before acting. If a reminder is "
+    "missing its task, time, or an unambiguous list, ask for what is missing. "
+    "For absolute times use an ISO 8601 datetime; for intervals use delay_seconds. "
+    "Use find or list to obtain the exact ID before changing, cancelling or skipping "
+    "a reminder. If several reminders match, ask which one. Skip affects occurrences; "
+    "cancel deletes the whole reminder. Cancel an entire list only on explicit request "
+    "and use cancel_all with the list target. If the result is confirmation_pending, "
+    "tell the user to wait for the separate voice prompt. Report a change as completed "
+    "only if the matching FGR tool returned status='success'."
 )
 
 
@@ -269,26 +279,53 @@ def _skip(hass, context, manager, args):
 
 _TOOLS = [
     ReminderTool(
-        _schedule, "Create a one-off or recurring FGR reminder. Supply text and exactly one of "
-        "due (an ISO 8601 datetime) or delay_seconds; optional rrule is an RFC 5545 recurrence.",
-        {vol.Required("text"): _TEXT, **_TIMING, vol.Optional("rrule"): _TEXT}, destructive=False,
+        _schedule,
+        "Schedule a spoken reminder for a task («напомни», «добавь напоминание», "
+        "'remind me'). Use this for both one-turn requests and follow-up replies with a "
+        "task and time, such as «покушать через одну минуту» after a reminder question. "
+        "Supply text and exactly one of due (ISO 8601 datetime) or delay_seconds. "
+        "For a recurring reminder, also supply an RFC 5545 rrule.",
+        {vol.Required("text"): _TEXT, **_TIMING, vol.Optional("rrule"): _TEXT},
+        destructive=False,
     ),
-    ReminderTool(_again, "Schedule the last reminder text again at due or after delay_seconds.",
-                 _TIMING, destructive=False),
-    ReminderTool(_list, "List, count or find the next FGR reminders, optionally in a date range.",
-                 _RANGE, read_only=True),
-    ReminderTool(_find, "Find FGR reminders by text or ISO 8601 datetime range; returns exact IDs.",
-                 {vol.Optional("text"): _TEXT, **_RANGE}, read_only=True),
-    ReminderTool(_edit, "Edit one FGR reminder by ID. Supply new text, due, delay_seconds or rrule. "
-                 "An empty rrule ends recurrence.",
-                 {vol.Required("id"): _TEXT, vol.Optional("text"): _TEXT,
-                  **_TIMING, vol.Optional("rrule"): str}),
-    ReminderTool(_cancel, "Cancel exactly one FGR reminder by ID, including its future occurrences.",
-                 {vol.Required("id"): _TEXT}),
-    ReminderTool(_skip, "Skip the next occurrence or the rest of this week for one recurring reminder.",
-                 {vol.Required("id"): _TEXT, vol.Optional("scope", default="next"): vol.In(("next", "week"))}),
-    ReminderTool(_cancel_all, "Request a live confirmation to delete every reminder in a named FGR list.",
-                 {vol.Required("target"): _TEXT}),
+    ReminderTool(
+        _again, "Schedule the last reminder task again («напомни ещё раз»). "
+        "Supply a new ISO 8601 due time or delay_seconds.", _TIMING, destructive=False,
+    ),
+    ReminderTool(
+        _list, "List upcoming reminders («какие у меня напоминания»), get the nearest "
+        "one or count reminders, optionally in a date range. Returns reminder IDs "
+        "and scheduled times.", _RANGE, read_only=True,
+    ),
+    ReminderTool(
+        _find, "Find a reminder by task text or ISO 8601 datetime range, for example "
+        "«когда напоминание про врача?». Use the returned ID to edit, cancel or skip "
+        "one reminder. If several match, ask which one.", {vol.Optional("text"): _TEXT, **_RANGE},
+        read_only=True,
+    ),
+    ReminderTool(
+        _edit, "Move, rename or change the recurrence of one reminder by ID "
+        "(«перенеси напоминание», «измени напоминание»). Set a new due datetime or "
+        "delay_seconds to move it. An empty rrule ends recurrence.",
+        {vol.Required("id"): _TEXT, vol.Optional("text"): _TEXT,
+         **_TIMING, vol.Optional("rrule"): str},
+    ),
+    ReminderTool(
+        _cancel, "Delete one reminder by exact ID («удали напоминание», «отмени напоминание»). "
+        "For a recurring reminder, this cancels the entire series. Use skip to omit occurrences.",
+        {vol.Required("id"): _TEXT},
+    ),
+    ReminderTool(
+        _skip, "Skip the next occurrence or this week's occurrences of one recurring "
+        "reminder by exact ID («пропусти следующее напоминание»). Use cancel to end the series.",
+        {vol.Required("id"): _TEXT, vol.Optional("scope", default="next"): vol.In(("next", "week"))},
+    ),
+    ReminderTool(
+        _cancel_all, "Request a separate live voice confirmation for an explicit "
+        "request to delete every reminder in a named list («удали все напоминания»). "
+        "Supply the list target. A pending confirmation means nothing has been deleted yet.",
+        {vol.Required("target"): _TEXT},
+    ),
 ]
 
 
