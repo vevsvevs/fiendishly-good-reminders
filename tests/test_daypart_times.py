@@ -142,6 +142,15 @@ check("3.75 hours = 3h 45m",
 check("old whole-number durations unchanged",
       it.when_from_slots(NOW, slots(rel_num=4, rel_unit="hours")),
       NOW + datetime.timedelta(hours=4))
+check("compound delay preserves hours and minutes",
+      (it.when_from_slots(NOW, slots(rel_num=4, rel_unit="hours", rel_num2=30,
+                                    rel_unit2="minutes"), T) - NOW).total_seconds(), 16200)
+check("implicit hour and minute with explicit seconds",
+      (it.when_from_slots(NOW, slots(rel_unit="hours", rel_unit2="minutes",
+                                    rel_num3=10, rel_unit3="seconds"), T) - NOW).total_seconds(), 3670)
+check("duplicate units rejected",
+      it.when_from_slots(NOW, slots(rel_num=4, rel_unit="hours", rel_num2=2,
+                                   rel_unit2="hours"), T), None)
 check("unknown fraction fails closed",
       it.when_from_slots(NOW, slots(rel_num=4, rel_unit="hours", rel_fraction="bogus")),
       None)

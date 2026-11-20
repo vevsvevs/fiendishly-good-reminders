@@ -1,6 +1,6 @@
 """Language-independent unit tests for the Russian follow-up parser."""
 import importlib.util
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import unittest
 
@@ -29,6 +29,14 @@ class RussianVoiceTests(unittest.TestCase):
         self.check("через полчаса", (2026,11,18,9,30,0))
         self.check("через полтора часа", (2026,11,18,10,30,0))
         self.check("через полторы минуты", (2026,11,18,9,1,30))
+
+    def test_compound_relative(self):
+        _, due, _ = ru.read_time("покормить малыша через четыре часа тридцать минут", NOW)
+        self.assertEqual(due - NOW, timedelta(hours=4, minutes=30))
+        _, due, _ = ru.read_time("через час и двадцать пять минут десять секунд", NOW)
+        self.assertEqual(due - NOW, timedelta(hours=1, minutes=25, seconds=10))
+        _, due, _ = ru.read_time("через два часа и три часа", NOW)
+        self.assertIsNone(due)
 
     def test_cardinal_plus_fraction(self):
         self.check("через четыре с половиной часа",

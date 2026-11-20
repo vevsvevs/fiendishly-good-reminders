@@ -248,7 +248,9 @@ def when_from_slots(now: datetime, slots: dict,
         return when if when > now else when + timedelta(days=7)
 
     rel_num = _int(slots, "rel_num")
-    if rel_num is not None:
+    if rel_num is not None or _slot(slots, "rel_unit2") is not None:
+        if rel_num is None:
+            rel_num = 1
         # Normalized by Hassil, not by interpreting the spoken numeral as text.
         # This handles "четыре с половиной часа" as 4.5 hours, and extends
         # without enumerating every cardinal number or noun declension.
@@ -257,17 +259,21 @@ def when_from_slots(now: datetime, slots: dict,
                      "three_quarters": 0.75}
         if fraction not in fractions:
             return None
-        quantity = rel_num + fractions[fraction]
         unit = _text(slots, "rel_unit", "minutes")
-        step = {
-            "seconds": timedelta(seconds=quantity),
-            "minutes": timedelta(minutes=quantity),
-            "hours": timedelta(hours=quantity),
-            "days": timedelta(days=quantity),
-        }.get(unit)
-        if step is None:
+        factors = {"seconds": 1, "minutes": 60, "hours": 3600, "days": 86400}
+        if unit not in factors:
             return None
-        return now + step
+        step = (rel_num + fractions[fraction]) * factors[unit]
+        used_units = {unit}
+        for suffix in ("2", "3"):
+            if not (extra_unit := _text(slots, f"rel_unit{suffix}")):
+                continue
+            extra_num = _int(slots, f"rel_num{suffix}", 1)
+            if extra_unit not in factors or extra_unit in used_units or extra_num < 1:
+                return None
+            step += extra_num * factors[extra_unit]
+            used_units.add(extra_unit)
+        return now + timedelta(seconds=step)
 
     if _int(slots, "hour") is None and not _slot(slots, "daypart"):
         return None

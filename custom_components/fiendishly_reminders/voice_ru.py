@@ -25,7 +25,7 @@ _UNITS = {
     "сек": 1, "секунд": 1, "секунду": 1, "секунды": 1,
     "мин": 60, "минут": 60, "минуту": 60, "минуты": 60,
     "час": 3600, "часа": 3600, "часов": 3600,
-    "день": 86400, "дня": 86400, "дней": 86400,
+    "день": 86400, "дня": 86400, "дней": 86400, "сутки": 86400, "суток": 86400,
 }
 _WEEKDAYS = {
     "понедельник": 0, "понедельникам": 0,
@@ -168,7 +168,39 @@ def owner_mentioned(sentence: str, names: list[str]) -> str | None:
             matches.append(name)
     return matches[0] if len(matches) == 1 else None
 
+_NUMBER_WORD = "|".join(_NUMBERS)
+_RELATIVE_PART = re.compile(
+    rf"(?:(?P<number>\d+|(?:{_NUMBER_WORD})(?:\s+(?:{_NUMBER_WORD})){{0,2}})\s+"
+    rf"(?P<unit>{'|'.join(_UNITS)})|(?P<single>секунду|минуту|час|день|сутки))\b"
+)
+_RELATIVE_SEPARATOR = re.compile(r"\s+(?:и\s+)?")
+
+
+def _compound_relative(s: str, start: int) -> list[tuple[int, int]]:
+    """Read consecutive duration parts without treating a unit as a numeral."""
+    parts = []
+    while match := _RELATIVE_PART.match(s, start):
+        word = match["number"]
+        quantity = number(word) if word else 1
+        if quantity is None:
+            break
+        parts.append((quantity, _UNITS[match["unit"] or match["single"]]))
+        separator = _RELATIVE_SEPARATOR.match(s, match.end())
+        if separator is None:
+            break
+        start = separator.end()
+    return parts
+
+
 def _relative(s: str):
+    for prefix in re.finditer(r"\b(?:через|спустя)\s+", s):
+        parts = _compound_relative(s, prefix.end())
+        if len(parts) > 1:
+            units = {scale for _, scale in parts}
+            if len(units) != len(parts) or any(quantity < 1 for quantity, _ in parts):
+                return None
+            return prefix.start(), timedelta(seconds=sum(quantity * scale for quantity, scale in parts))
+
     # The free-form answer to "Когда напомнить?" must mean the same thing as
     # the one-turn Hassil slots. Test fractions *before* the integer pattern:
     # "через четыре часа с половиной" otherwise quietly loses 30 minutes.

@@ -19,11 +19,15 @@ SENTENCES = ROOT / "custom_sentences" / "ru" / "reminders.yaml"
 data = yaml.safe_load(SENTENCES.read_text(encoding="utf-8"))
 assert data["language"] == "ru"
 base = deepcopy(get_intents("ru"))
+# Mirror Home Assistant's custom-sentence priority as well as its merge.
+CUSTOM_SENTENCE = "hass_custom_sentence"
 for key, value in data.get("lists", {}).items():
     base.setdefault("lists", {})[key] = value
 for key, value in data.get("expansion_rules", {}).items():
     base.setdefault("expansion_rules", {})[key] = value
 for key, value in data.get("intents", {}).items():
+    for sentence_group in value["data"]:
+        sentence_group.setdefault("metadata", {})[CUSTOM_SENTENCE] = True
     base.setdefault("intents", {}).setdefault(key, {"data": []})["data"].extend(value["data"])
 grammar = Intents.from_dict(base)
 # In the live handler an owner swallowed by {reminder_text} / {fallback_rest}
@@ -41,6 +45,31 @@ lists = {
 }
 
 CASES = [
+    # Explicit FGR verbs win over the built-in delayed-command template.
+    ("напомни покормить малыша через четыре часа тридцать минут", "CustomReminderSet",
+     {"reminder_text": "покормить малыша", "rel_num": 4, "rel_unit": "hours",
+      "rel_num2": 30, "rel_unit2": "minutes"}),
+    ("напомни покормить малыша через четыре часа и тридцать минут", "CustomReminderSet",
+     {"reminder_text": "покормить малыша", "rel_num": 4, "rel_num2": 30}),
+    ("через четыре часа тридцать минут напомни покормить малыша", "CustomReminderSet",
+     {"reminder_text": "покормить малыша", "rel_num": 4, "rel_num2": 30}),
+    ("напомни через 1 день 2 часа 3 минуты проверить отчёт", "CustomReminderSet",
+     {"reminder_text": "проверить отчёт", "rel_num": 1, "rel_unit": "days",
+      "rel_num2": 2, "rel_unit2": "hours", "rel_num3": 3, "rel_unit3": "minutes"}),
+    ("напомни проверить чайник спустя две минуты десять секунд", "CustomReminderSet",
+     {"reminder_text": "проверить чайник", "rel_num": 2, "rel_unit": "minutes",
+      "rel_num2": 10, "rel_unit2": "seconds"}),
+    ("напомни Марии про молоко через час и двадцать минут", "CustomReminderSet",
+     {"reminder_text": "молоко", "person": "Марии", "rel_unit": "hours",
+      "rel_num2": 20, "rel_unit2": "minutes"}),
+    ("напомни купить молоко через четыре часа тридцать минут для Марии", "CustomReminderFallback",
+     {"person": "Марии", "fallback_rest": "купить молоко через четыре часа тридцать минут"}),
+    ("напомни ещё раз через час и минуту", "CustomReminderAgain",
+     {"rel_unit": "hours", "rel_unit2": "minutes"}),
+    ("через четыре часа тридцать минут включи свет в гостиной", "HassStartTimer",
+     {"hours": 4, "minutes": 30, "conversation_command": "включи свет в гостиной"}),
+    ("поставь таймер на четыре часа тридцать минут", "HassStartTimer",
+     {"hours": 4, "minutes": 30}),
     # Russian case endings and close variants of the phrase seen in Assist.
     ("расскажи о напоминаниях", "CustomReminderList", {}),
     ("расскажи мне о моих напоминаниях", "CustomReminderList", {}),
@@ -259,7 +288,7 @@ NEGATIVE = (
 
 failures = []
 for phrase, expected, slots in CASES:
-    r = recognize_best(phrase, grammar, language="ru", slot_lists=lists, best_slot_name="name")
+    r = recognize_best(phrase, grammar, language="ru", slot_lists=lists, best_slot_name="name", best_metadata_key=CUSTOM_SENTENCE)
     got = r.intent.name if r else None
     vals = {x.name: x.value for x in r.entities_list} if r else {}
     if got and got.startswith("CustomReminder") and "person" not in vals:
@@ -283,7 +312,7 @@ for phrase, expected, slots in CASES:
     else:
         print("PASS", repr(phrase), "=>", expected)
 for phrase in NEGATIVE:
-    r = recognize_best(phrase, grammar, language="ru", slot_lists=lists, best_slot_name="name")
+    r = recognize_best(phrase, grammar, language="ru", slot_lists=lists, best_slot_name="name", best_metadata_key=CUSTOM_SENTENCE)
     got = r.intent.name if r else None
     if got and got.startswith("CustomReminder"):
         failures.append((phrase, got, {}, "not a reminder", {}))

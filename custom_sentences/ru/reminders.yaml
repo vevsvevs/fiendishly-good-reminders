@@ -6,6 +6,14 @@ intents:
   CustomReminderSet:
     data:
       - sentences:
+          - "<fgr_start> {reminder_text} <fgr_compound_delay>"
+          - "<fgr_start> <fgr_compound_delay> {reminder_text}"
+          - "<fgr_compound_delay> <fgr_start> {reminder_text}"
+          - "<fgr_start> {reminder_text} <fgr_compound_delay> для {person}"
+          - "<fgr_start> {reminder_text} для {person} <fgr_compound_delay>"
+          - "для {person} <fgr_start> {reminder_text} <fgr_compound_delay>"
+          - "<fgr_start> {person} (о|про) {reminder_text} <fgr_compound_delay>"
+      - sentences:
           - "<fgr_start> {reminder_text} через {rel_num} {rel_unit} для {person}"
           - "<fgr_start> {reminder_text} для {person} через {rel_num} {rel_unit}"
           - "для {person} <fgr_start> {reminder_text} через {rel_num} {rel_unit}"
@@ -994,6 +1002,11 @@ intents:
   CustomReminderAgain:
     data:
       - sentences:
+          - "<fgr_start> (ещё раз|еще раз|снова) <fgr_compound_delay>"
+          - "<fgr_start> {person} (ещё раз|еще раз|снова) <fgr_compound_delay>"
+          - "<fgr_start> (ещё раз|еще раз|снова) <fgr_compound_delay> (у|для) {person}"
+          - "(повтори|повторить) [последнее] напоминание <fgr_compound_delay>"
+      - sentences:
           - "(напомни|напоминай) {person} (еще|ещё) раз через {rel_num} {rel_unit}"
           - "(напомни|напоминай) (еще|ещё) раз через {rel_num} {rel_unit} (у|для) {person}"
           - "(повтори|повторить) последнее напоминание (у|для) {person} через {rel_num} {rel_unit}"
@@ -1039,6 +1052,7 @@ expansion_rules:
   fgr_next: "(следующее|ближайшее|очередное)"
   fgr_period_question: "((какие|что за|есть ли) [у меня] напоминания|(какие|что за|есть ли) напоминания у меня|какие напоминания [у меня] запланированы|<fgr_read> [мне] [мои] [все] напоминания|<fgr_tell_reminders>)"
   fgr_find: "((когда|во сколько) [будет|стоит|сработает]|есть ли|найди|<fgr_read> [мне])"
+  fgr_compound_delay: "(через|спустя) ({rel_num} {rel_unit}|{fgr_single_relative_unit:rel_unit}) [и] ({rel_num:rel_num2} {rel_unit:rel_unit2}|{fgr_single_relative_unit:rel_unit2}) [[и] ({rel_num:rel_num3} {rel_unit:rel_unit3}|{fgr_single_relative_unit:rel_unit3})]"
   fgr_start: "(напомни|напомните|пожалуйста напомни) [мне] [пожалуйста]"
   fgr_repeat: "(напоминай|напоминайте|напомни|напомните) [мне] [пожалуйста]"
 lists:
@@ -1090,6 +1104,16 @@ lists:
     range:
       from: 0
       to: 59
+  fgr_single_relative_unit:
+    values:
+      - in: "секунду"
+        out: "seconds"
+      - in: "минуту"
+        out: "minutes"
+      - in: "час"
+        out: "hours"
+      - in: "(день|сутки)"
+        out: "days"
   rel_unit:
     values:
       - in: "(секунду|секунды|секунд|сек)"
